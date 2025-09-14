@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    env:
+      # FastAPI app env (used by server + agent card)
+      A2A_HOST: "0.0.0.0"
+      A2A_PORT: "8000"
+      PUBLIC_URL: "http://127.0.0.1:8000"
+      # Keep pytest noise down in CI
+      PYTHONWARNINGS: "ignore::DeprecationWarning"
+
+    steps:
+      - name: Checkout
+      # v4 uses shallow fetch by default; sufficient for CI
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: |
+            **/pyproject.toml
+            **/requirements*.txt
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install package and test deps
+        run: |
+          # Install the project in editable mode; don't assume extras exist
+          pip install -e .
+          # Minimal test tooling + runtime deps used by the server and tests
+          pip install pytest pytest-cov httpx uvicorn
+
+      - name: Show environment
+        run: |
+          python --version
+          pip --version
+          pip list
+
+      - name: Boot A2A server (background)
+        run: |
+          nohup uvicorn a2a_universal.server:app --host "${A2A_HOST}" --port "${A2A_PORT}" > uvicorn.log 2>&1 & echo $! > uvicorn.pid
+          # Wait for /healthz to be ready (retry a few times)
+          for i in {1..30}; do
+            if curl -fsS "http://127.0.0.1:${A2A_PORT}/healthz" >/dev/null; then
+              echo "Server is up."
+              break
+            fi
+            echo "Waiting for server... ($i)"
+            sleep 1
+          done
+          # Final check (fail fast if not healthy)
+          curl -fsS "http://127.0.0.1:${A2A_PORT}/healthz"
+
+      - name: Run tests
+        run: |
+          pytest -q --maxfail=1 --disable-warnings \
+            --cov=a2a_universal --cov-report=xml --cov-report=term
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+
+      - name: Print server logs on failure
+        if: failure()
+        run: |
+          echo "----- uvicorn.log -----"
+          cat uvicorn.log || true
+
+      - name: Stop server (best-effort)
+        if: always()
+        run: |
+          if [ -f uvicorn.pid ]; then
+            kill "$(cat uvicorn.pid)" || true
+          fi
+
+  # Optional: publish a Docker image when pushing to main and tests pass.
+  # Uncomment and configure your registry credentials if you want this.
+  # docker:
+  #   name: Build Docker image
+  #   runs-on: ubuntu-latest
+  #   needs: [test]
+  #   if: github.ref == 'refs/heads/main'
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v3
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+  #     - name: Login to GHCR
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Build & push
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         push: true
+  #         tags: ghcr.io/${{ github.repository }}:latest
