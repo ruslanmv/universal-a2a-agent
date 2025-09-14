@@ -9,8 +9,10 @@ services:
       dockerfile: Dockerfile
       args:
         EXTRAS: ${EXTRAS:-all}
+
     ports:
       - "${HOST_PORT:-8000}:${PORT:-8000}"
+
     environment:
       # Gunicorn/Uvicorn tuning
       PORT: ${PORT:-8000}
@@ -23,6 +25,18 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
       A2A_HOST: 0.0.0.0
       A2A_PORT: ${PORT:-8000}
+
+      # Provider/Framework selection (swap freely at deploy time)
+      LLM_PROVIDER: ${LLM_PROVIDER:-echo}          # echo|openai|watsonx|ollama|anthropic|gemini|azure_openai|bedrock
+      AGENT_FRAMEWORK: ${AGENT_FRAMEWORK:-langgraph} # langgraph|crewai|autogen|beeai|langchain
+
+      # Provider credentials (examples; set real secrets in .env or secrets manager)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      WATSONX_API_KEY: ${WATSONX_API_KEY:-}
+      WATSONX_URL: ${WATSONX_URL:-}
+      WATSONX_PROJECT_ID: ${WATSONX_PROJECT_ID:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
 
       # Private adapter (enterprise)
       PRIVATE_ADAPTER_ENABLED: ${PRIVATE_ADAPTER_ENABLED:-false}

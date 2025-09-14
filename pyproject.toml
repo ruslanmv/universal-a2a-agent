@@ -4,23 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-a2a-agent"
-version = "1.2.0"
-description = "Framework-agnostic A2A agent with MCP, LangChain, LangGraph, CrewAI, BeeAI, AutoGen, WXO"
+version = "0.1.1"
+description = "Framework-agnostic A2A agent with pluggable Providers & Frameworks (MCP, LangChain, LangGraph, CrewAI, BeeAI, AutoGen, watsonx.ai)"
 readme = "README.md"
-authors = [{name="Ruslan Magana Vsevolodovna", email="contact@ruslanmv.com"}]
-license = {text = "MIT"}
+authors = [{ name = "Ruslan Magana Vsevolodovna", email = "contact@ruslanmv.com" }]
+license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
 dependencies = [
   "fastapi>=0.111",
   "uvicorn>=0.30",
   "pydantic>=2.6",
   "httpx>=0.27",
+  "pydantic-settings>=2.3",
   "typer>=0.12",
   "python-dotenv>=1.0"
 ]
 
 [project.optional-dependencies]
-langchain = ["langchain>=0.2", "langchain-community>=0.2"]
+# --- Framework adapters ---
+langchain = [
+  "langchain>=0.2",
+  "langchain-community>=0.2"
+]
 # Native LangGraph extras (MessagesState + LC message types)
 langgraph = [
   "langgraph>=0.2",
@@ -31,12 +36,52 @@ langgraph = [
 crewai = ["crewai>=0.51", "crewai-tools>=0.1.0"]
 autogen = ["pyautogen>=0.2"]
 beeai = ["beeai-framework>=0.1.44"]
-all = [
-  "langchain>=0.2", "langchain-community>=0.2",
-  "langgraph>=0.2", "langchain-core>=0.2",
-  "crewai>=0.51", "crewai-tools>=0.1.0",
+
+# --- Provider plugins ---
+openai = ["openai>=1.0"]
+watsonx = ["ibm-watsonx-ai>=1.0"]
+anthropic = ["anthropic>=0.30"]
+gemini = ["google-generativeai>=0.7"]
+azure_openai = ["openai>=1.0"]
+bedrock = ["boto3>=1.34", "botocore>=1.34"]
+ollama = []
+
+# Convenience bundles
+providers-all = [
+  "openai>=1.0",
+  "ibm-watsonx-ai>=1.0",
+  "anthropic>=0.30",
+  "google-generativeai>=0.7",
+  "boto3>=1.34",
+  "botocore>=1.34"
+]
+frameworks-all = [
+  "langgraph>=0.2",
+  "langchain-core>=0.2",
+  "langchain>=0.2",
+  "langchain-community>=0.2",
+  "crewai>=0.51",
+  "crewai-tools>=0.1.0",
   "pyautogen>=0.2",
   "beeai-framework>=0.1.44"
+]
+all = [
+  # frameworks
+  "langgraph>=0.2",
+  "langchain-core>=0.2",
+  "langchain>=0.2",
+  "langchain-community>=0.2",
+  "crewai>=0.51",
+  "crewai-tools>=0.1.0",
+  "pyautogen>=0.2",
+  "beeai-framework>=0.1.44",
+  # providers
+  "openai>=1.0",
+  "ibm-watsonx-ai>=1.0",
+  "anthropic>=0.30",
+  "google-generativeai>=0.7",
+  "boto3>=1.34",
+  "botocore>=1.34"
 ]
 
 [project.scripts]
