@@ -1,0 +1,248 @@
+# ==== Universal A2A Agent — Makefile ====
+# Usage: `make help` (default)
+
+# ---- OS-aware settings ----
+OS_UNAME    := $(shell uname 2>/dev/null || echo Windows_NT)
+VENV        ?= .venv
+PY          ?= python            # more cross-platform than python3
+ifeq ($(OS_UNAME),Windows_NT)
+  VENV_BIN  := $(VENV)/Scripts
+else
+  VENV_BIN  := $(VENV)/bin
+endif
+PIP          = $(VENV_BIN)/pip
+UVICORN      = $(VENV_BIN)/uvicorn
+PYTHON       = $(VENV_BIN)/python
+CLI          = $(VENV_BIN)/a2a
+PORT        ?= 8000
+HOST        ?= 0.0.0.0
+BASE        ?= http://localhost:$(PORT)
+TEXT        ?= ping from Makefile
+PID_FILE    ?= .uvicorn.pid
+
+# Docker/Helm
+IMAGE       ?= universal-a2a-agent:local
+NAMESPACE   ?= default
+RELEASE     ?= a2a
+CHART_DIR   ?= deploy/helm/universal-a2a-agent
+
+# Colors
+C_RESET := \033[0m
+C_BLUE  := \033[1;34m
+C_GREEN := \033[1;32m
+C_YELL  := \033[1;33m
+
+.DEFAULT_GOAL := help
+.PHONY: help wizard wizard-ci venv install install-all install-extras dev-tools clean dist-clean \
+        run run-dev start stop restart logs card \
+        ping ping-cli ping-py ping-a2a ping-rpc ping-openai \
+        test test-local lint format type-check verify-integrations ci \
+        docker-build docker-run docker-push \
+        helm-install helm-upgrade helm-uninstall env
+
+# ---- Help ----
+help:
+	@echo ""
+	@echo "$(C_BLUE)Universal A2A Agent — common tasks$(C_RESET)"
+	@echo "  make wizard           - Interactive setup (venv + choose framework extras) "
+	@echo "  make install          - Create venv and install package (editable)"
+	@echo "  make install-all      - Install with all framework extras"
+	@echo "  make install-extras   - Install selected extras (EXTRAS=\"langgraph crewai\")"
+	@echo "  make run              - Run server ($(HOST):$(PORT))"
+	@echo "  make run-dev          - Run with reload"
+	@echo "  make start|stop       - Start/stop in background (PID: $(PID_FILE))"
+	@echo "  make ping             - Quick end-to-end ping via CLI"
+	@echo "  make ping-a2a|ping-rpc|ping-openai - cURL against each endpoint"
+	@echo "  make test             - Run tests (pytest)"
+	@echo "  make verify-integrations - Simple integration sanity checks"
+	@echo "  make lint|format      - Ruff/Black"
+	@echo "  make docker-build|docker-run - Containerize and run"
+	@echo "  make helm-install     - Install Helm chart (namespace: $(NAMESPACE))"
+	@echo "  make env              - Print effective variables"
+	@echo ""
+
+# ---- Wizard ----
+wizard:
+	@echo "$(C_YELL)[wizard] Launching interactive setup …$(C_RESET)"
+	@$(PY) scripts/setup_wizard.py
+
+# Non-interactive (useful for CI or quick scripts)
+# Example: make wizard-ci EXTRAS="langgraph crewai" DEVTOOLS=1 ENV=1 SMOKE=1
+wizard-ci:
+	@echo "$(C_YELL)[wizard-ci] Non-interactive setup …$(C_RESET)"
+	@$(PY) scripts/setup_wizard.py --non-interactive \
+		$(if $(EXTRAS),--extras $(EXTRAS),) \
+		$(if $(findstring all,$(EXTRAS)),--all,) \
+		$(if $(DEVTOOLS),--devtools,) \
+		$(if $(ENV),--env,) \
+		$(if $(SMOKE),--smoke,) \
+		--venv $(VENV)
+
+# ---- Env / bootstrap ----
+venv:
+	@echo "$(C_YELL)[venv] Creating virtual environment in $(VENV)$(C_RESET)"
+	@$(PY) -m venv $(VENV)
+	@$(PIP) install --upgrade pip
+
+install: venv
+	@echo "$(C_YELL)[pip] Installing package (editable)$(C_RESET)"
+	@$(PIP) install -e .
+
+install-all: venv
+	@echo "$(C_YELL)[pip] Installing package with [all] extras$(C_RESET)"
+	@$(PIP) install -e .[all]
+
+# Usage: make install-extras EXTRAS="langgraph crewai"
+install-extras: venv
+ifeq ($(strip $(EXTRAS)),)
+	@echo "$(C_YELL)[install-extras] No EXTRAS provided. Example: make install-extras EXTRAS=\"langgraph crewai\"$(C_RESET)"; exit 1;
+endif
+	@echo "$(C_YELL)[pip] Installing extras: $(EXTRAS)$(C_RESET)"
+	@$(PIP) install -e .[$(shell echo $(EXTRAS) | sed 's/ /,/g')]
+
+dev-tools: venv
+	@echo "$(C_YELL)[pip] Installing dev tools (pytest, ruff, black, mypy)$(C_RESET)"
+	@$(PIP) install pytest ruff black mypy httpx
+
+clean:
+	@echo "$(C_YELL)[clean] Removing caches$(C_RESET)"
+	@rm -rf __pycache__ **/__pycache__ *.pyc *.pyo .pytest_cache .mypy_cache
+
+dist-clean: clean
+	@rm -rf dist build *.egg-info
+
+env:
+	@echo "OS_UNAME=$(OS_UNAME)"
+	@echo "HOST=$(HOST)"
+	@echo "PORT=$(PORT)"
+	@echo "BASE=$(BASE)"
+	@echo "VENV=$(VENV)"
+	@echo "VENV_BIN=$(VENV_BIN)"
+	@echo "IMAGE=$(IMAGE)"
+
+# ---- Run server ----
+run: install
+	@echo "$(C_GREEN)[run] uvicorn at $(HOST):$(PORT)$(C_RESET)"
+	@$(UVICORN) a2a_universal.server:app --host $(HOST) --port $(PORT)
+
+run-dev: install
+	@echo "$(C_GREEN)[run-dev] uvicorn --reload at $(HOST):$(PORT)$(C_RESET)"
+	@$(UVICORN) a2a_universal.server:app --host $(HOST) --port $(PORT) --reload
+
+start: install
+	@echo "$(C_GREEN)[start] background server -> $(PID_FILE)$(C_RESET)"
+	@nohup $(UVICORN) a2a_universal.server:app --host $(HOST) --port $(PORT) >/dev/null 2>&1 & echo $$! > $(PID_FILE)
+	@sleep 1
+	@echo "PID=$$(cat $(PID_FILE))"
+
+stop:
+	@if [ -f $(PID_FILE) ]; then \
+		echo "$(C_YELL)[stop] killing PID $$(cat $(PID_FILE))$(C_RESET)"; \
+		kill $$(cat $(PID_FILE)) || true; rm -f $(PID_FILE); \
+	else \
+		echo "$(C_YELL)[stop] no PID file$(C_RESET)"; \
+	fi
+
+restart: stop start
+
+logs:
+	@echo "$(C_YELL)[logs] (tip) run server in foreground for logs, or 'docker logs' when containerized$(C_RESET)"
+
+card:
+	@echo "$(C_YELL)[card] fetching /.well-known/agent-card.json$(C_RESET)"
+	@curl -s $(BASE)/.well-known/agent-card.json | $(PY) -m json.tool
+
+# ---- Client / pings ----
+ping: install
+	@echo "$(C_GREEN)[cli] a2a ping: '$(TEXT)'$(C_RESET)"
+	@$(CLI) ping --text '$(TEXT)'
+
+ping-cli: ping
+
+ping-py: install
+	@echo "$(C_GREEN)[py] direct client call$(C_RESET)"
+	@$(PYTHON) - <<'PY'\nfrom a2a_universal.client import A2AClient\nprint(A2AClient("$(BASE)").send("$(TEXT)"))\nPY
+
+ping-a2a:
+	@echo "$(C_GREEN)[curl:/a2a]$(C_RESET)"
+	@curl -s $(BASE)/a2a \
+	  -H 'Content-Type: application/json' \
+	  -d '{"method":"message/send","params":{"message":{"role":"user","messageId":"m1","parts":[{"type":"text","text":"$(TEXT)"}]}}}' \
+	  | $(PY) -m json.tool
+
+ping-rpc:
+	@echo "$(C_GREEN)[curl:/rpc]$(C_RESET)"
+	@curl -s $(BASE)/rpc \
+	  -H 'Content-Type: application/json' \
+	  -d '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"role":"user","messageId":"m1","parts":[{"type":"text","text":"$(TEXT)"}]}}}' \
+	  | $(PY) -m json.tool
+
+ping-openai:
+	@echo "$(C_GREEN)[curl:/openai/v1/chat/completions]$(C_RESET)"
+	@curl -s $(BASE)/openai/v1/chat/completions \
+	  -H 'Content-Type: application/json' \
+	  -d '{"model":"universal-a2a-hello","messages":[{"role":"user","content":"$(TEXT)"}]}' \
+	  | $(PY) -m json.tool
+
+# ---- Quality / tests ----
+test: install
+	@echo "$(C_YELL)[pytest]$(C_RESET)"
+	@$(PIP) install pytest httpx >/dev/null
+	@pytest -q
+
+# Start server in bg for tests that expect it, then stop after
+test-local: start
+	@$(PIP) install pytest httpx >/dev/null
+	@pytest -q || (RC=$$?; $(MAKE) stop; exit $$RC)
+	@$(MAKE) stop
+
+# Simple integration sanity checks across installed frameworks
+.PHONY: verify-integrations
+verify-integrations: install
+	@echo "$(C_YELL)[verify] Running simple integration sanity checks$(C_RESET)"
+	@$(PYTHON) scripts/check_integrations.py
+
+lint: dev-tools
+	@echo "$(C_YELL)[ruff] Linting$(C_RESET)"
+	@$(VENV_BIN)/ruff check src
+
+format: dev-tools
+	@echo "$(C_YELL)[black] Formatting$(C_RESET)"
+	@$(VENV_BIN)/black src examples tests
+
+type-check: dev-tools
+	@echo "$(C_YELL)[mypy] Type checking$(C_RESET)"
+	@$(VENV_BIN)/mypy src || true
+
+# ---- CI convenience ----
+ci:
+	@echo "$(C_YELL)[ci] Installing minimal extras and running tests$(C_RESET)"
+	@$(MAKE) install
+	@$(PIP) install -e .[langgraph] pytest httpx >/dev/null
+	@$(UVICORN) a2a_universal.server:app --host 0.0.0.0 --port $(PORT) &
+	@echo $$! > $(PID_FILE); sleep 2
+	@pytest -q || (RC=$$?; kill $$(cat $(PID_FILE)) || true; rm -f $(PID_FILE); exit $$RC)
+	@kill $$(cat $(PID_FILE)) || true; rm -f $(PID_FILE)
+
+# ---- Docker / Helm ----
+docker-build:
+	@echo "$(C_YELL)[docker] building $(IMAGE)$(C_RESET)"
+	@docker build -t $(IMAGE) .
+
+docker-run:
+	@echo "$(C_YELL)[docker] running $(IMAGE) on :$(PORT)$(C_RESET)"
+	@docker run --rm -p $(PORT):8000 --env-file .env $(IMAGE)
+
+docker-push:
+	@echo "$(C_YELL)[docker] push (set IMAGE to your registry/repo)$(C_RESET)"
+	@docker push $(IMAGE)
+
+helm-install:
+	@echo "$(C_YELL)[helm] install/upgrade $(RELEASE) in ns $(NAMESPACE)$(C_RESET)"
+	@helm upgrade --install $(RELEASE) $(CHART_DIR) -n $(NAMESPACE) --create-namespace
+
+helm-upgrade:
+	@helm upgrade $(RELEASE) $(CHART_DIR) -n $(NAMESPACE)
+
+helm-uninstall:
+	@helm uninstall $(RELEASE) -n $(NAMESPACE)

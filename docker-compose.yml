@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  a2a-agent:
+    # Build locally OR switch to a published image by removing `build:` and keeping `image:`
+    image: ${IMAGE_REPO:-yourrepo/universal-a2a-agent}:${IMAGE_TAG:-1.2.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXTRAS: ${EXTRAS:-all}
+    ports:
+      - "${HOST_PORT:-8000}:${PORT:-8000}"
+    environment:
+      # Gunicorn/Uvicorn tuning
+      PORT: ${PORT:-8000}
+      WORKERS: ${WORKERS:-2}
+      TIMEOUT: ${TIMEOUT:-60}
+      KEEP_ALIVE: ${KEEP_ALIVE:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # App env
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      A2A_HOST: 0.0.0.0
+      A2A_PORT: ${PORT:-8000}
+
+      # Private adapter (enterprise)
+      PRIVATE_ADAPTER_ENABLED: ${PRIVATE_ADAPTER_ENABLED:-false}
+      PRIVATE_ADAPTER_AUTH_SCHEME: ${PRIVATE_ADAPTER_AUTH_SCHEME:-NONE}
+      PRIVATE_ADAPTER_AUTH_TOKEN: ${PRIVATE_ADAPTER_AUTH_TOKEN:-}
+      PRIVATE_ADAPTER_INPUT_KEY: ${PRIVATE_ADAPTER_INPUT_KEY:-input}
+      PRIVATE_ADAPTER_OUTPUT_KEY: ${PRIVATE_ADAPTER_OUTPUT_KEY:-output}
+      PRIVATE_ADAPTER_TRACE_KEY: ${PRIVATE_ADAPTER_TRACE_KEY:-traceId}
+      PRIVATE_ADAPTER_PATH: ${PRIVATE_ADAPTER_PATH:-/enterprise/v1/agent}
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,os,sys;sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.getenv(\"PORT\",\"8000\")}/healthz', timeout=2).status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+    restart: unless-stopped
+
+    # Match the non-root UID/GID from the Dockerfile (appuser: 10001)
+    user: "10001:10001"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - a2a-net
+
+networks:
+  a2a-net:
+    driver: bridge

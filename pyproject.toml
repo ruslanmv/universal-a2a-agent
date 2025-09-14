@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "universal-a2a-agent"
+version = "1.2.0"
+description = "Framework-agnostic A2A agent with MCP, LangChain, LangGraph, CrewAI, BeeAI, AutoGen, WXO"
+readme = "README.md"
+authors = [{name="Ruslan Magana Vsevolodovna", email="contact@ruslanmv.com"}]
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.111",
+  "uvicorn>=0.30",
+  "pydantic>=2.6",
+  "httpx>=0.27",
+  "typer>=0.12",
+  "python-dotenv>=1.0"
+]
+
+[project.optional-dependencies]
+langchain = ["langchain>=0.2", "langchain-community>=0.2"]
+# Native LangGraph extras (MessagesState + LC message types)
+langgraph = [
+  "langgraph>=0.2",
+  "langchain-core>=0.2",
+  "langchain>=0.2",
+  "langchain-community>=0.2"
+]
+crewai = ["crewai>=0.51", "crewai-tools>=0.1.0"]
+autogen = ["pyautogen>=0.2"]
+beeai = ["beeai-framework>=0.1.44"]
+all = [
+  "langchain>=0.2", "langchain-community>=0.2",
+  "langgraph>=0.2", "langchain-core>=0.2",
+  "crewai>=0.51", "crewai-tools>=0.1.0",
+  "pyautogen>=0.2",
+  "beeai-framework>=0.1.44"
+]
+
+[project.scripts]
+a2a = "a2a_universal.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
