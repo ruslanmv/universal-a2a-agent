@@ -1,0 +1,152 @@
+name: 📦 Publish Docker (GHCR)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag (e.g., v1.2.3 or 1.2.3)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ghcr-publish
+  cancel-in-progress: true
+
+env:
+  # Dockerfile path and context (adjust only if your repo layout changes)
+  DOCKERFILE: ./Dockerfile
+  CONTEXT: .
+  # Default build extras (your Dockerfile supports ARG EXTRAS)
+  EXTRAS: all
+
+jobs:
+  build-and-push:
+    name: Build & Push (GHCR)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Normalize version from release tag or manual input
+      - name: Derive release version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            RAW="${GITHUB_REF#refs/tags/}"
+          else
+            RAW="${{ github.event.inputs.version }}"
+          fi
+          if [ -z "$RAW" ]; then
+            echo "Version not provided."; exit 1
+          fi
+          if [[ "$RAW" =~ ^v ]]; then
+            RELEASE_TAG="$RAW"
+            SEMVER="${RAW#v}"
+          else
+            RELEASE_TAG="v$RAW"
+            SEMVER="$RAW"
+          fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+          echo "Resolved RELEASE_TAG=${RELEASE_TAG}, SEMVER=${SEMVER}, SHORT_SHA=${SHORT_SHA}"
+
+      # ghcr.io requires lowercase owner/repo in image path
+      - name: Compute image name (lowercase)
+        id: img
+        shell: bash
+        run: |
+          OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          REPO_LC="${REPO,,}"
+          IMAGE="ghcr.io/${OWNER_LC}/${REPO_LC}"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "Image: $IMAGE"
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: GHCR login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            # stable semver tags (always)
+            type=raw,value=v${{ env.SEMVER }}
+            type=semver,pattern={{version}},value=${{ env.SEMVER }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.SEMVER }}
+            type=semver,pattern={{major}},value=${{ env.SEMVER }}
+            # short sha tag (always)
+            type=raw,value=sha-${{ env.SHORT_SHA }}
+            # latest only on release
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+          labels: |
+            org.opencontainers.image.title=${{ env.IMAGE }}
+            org.opencontainers.image.description=Universal A2A Agent — framework-agnostic A2A service with provider & framework plugins; OpenAI-compatible, MCP-ready.
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ env.SEMVER }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+
+      - name: Build & push (GHCR)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            EXTRAS=${{ env.EXTRAS }}
+
+      # Lightweight sanity checks on the produced image
+      - name: Sanity guard — entrypoint exists
+        shell: bash
+        run: |
+          REF="$(echo "${{ steps.meta.outputs.tags }}" | head -n1)"
+          docker run --rm --entrypoint /bin/sh "$REF" -lc 'test -x /app/entrypoint.sh'
+          echo "OK: /app/entrypoint.sh present"
+
+      - name: Sanity guard — no baked .env
+        shell: bash
+        run: |
+          REF="$(echo "${{ steps.meta.outputs.tags }}" | head -n1)"
+          docker run --rm --entrypoint /bin/sh "$REF" -lc '! find / -maxdepth 4 -name ".env" 2>/dev/null | grep -q .'
+          echo "OK: no baked .env detected"
+
+      - name: Inspect multi-arch manifest (release tag)
+        if: always()
+        shell: bash
+        run: |
+          echo "Inspecting v${SEMVER}…"
+          docker buildx imagetools inspect "${IMAGE}:v${SEMVER}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "Inspecting latest…"
+            docker buildx imagetools inspect "${IMAGE}:latest"
+          fi
