@@ -2,3 +2,4 @@
 set -euo pipefail
 
 docker compose down
+

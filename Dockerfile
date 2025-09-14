@@ -17,9 +17,9 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR /build
 
-# System deps (only if you need compilation)
+# System deps (uncomment if you need compilation)
 # RUN apt-get update -y && apt-get install -y --no-install-recommends \
-#     build-essential \
+#     build-essential ca-certificates \
 #     && rm -rf /var/lib/apt/lists/*
 
 # Copy project metadata first to leverage Docker layer caching
@@ -29,15 +29,15 @@ COPY src ./src
 # Optional build arg to choose extras (e.g., "all", "langgraph", "langchain")
 ARG EXTRAS=all
 
-# Install project + runtime server, compile bytecode for faster start
+# Install project + runtime server.
+# The problematic 'compileall' command has been removed.
 RUN python -m pip install --upgrade pip wheel setuptools && \
     python -m pip install --no-cache-dir "gunicorn>=22.0" && \
     if [ -n "$EXTRAS" ]; then \
         python -m pip install --no-cache-dir ".[$EXTRAS]"; \
     else \
         python -m pip install --no-cache-dir .; \
-    fi && \
-    python -m compileall -q /usr/local/lib/python3.11/site-packages
+    fi
 
 ##########
 #  STAGE 2: Runtime — minimal, secure, non-root
@@ -59,7 +59,11 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     # App env defaults (override in Helm/compose)
     A2A_HOST=0.0.0.0 \
     A2A_PORT=8000 \
-    PUBLIC_URL=http://localhost:8000
+    PUBLIC_URL=http://localhost:8000 \
+    \
+    # Provider/Framework selection
+    LLM_PROVIDER=echo \
+    AGENT_FRAMEWORK=langgraph
 
 # Create non-root user and app directory
 RUN useradd -r -u 10001 -s /usr/sbin/nologin appuser && \
@@ -71,16 +75,16 @@ WORKDIR /app
 # Copy installed site-packages & binaries from builder
 COPY --from=builder /usr/local /usr/local
 
-# --- FIXED HEALTHCHECK ---
-# Minimal, self-contained healthcheck using Python (no curl/wget needed)
-# The Python script is passed as a single string to avoid parsing errors.
+# --- HEALTHCHECK ---
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import os, sys, urllib.request; \
+  u=f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/healthz'; \
   try: \
-    res = urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"8000\")}/healthz', timeout=2); \
-    if res.status != 200: sys.exit(1); \
+      with urllib.request.urlopen(u, timeout=2) as r: \
+          ok = (r.status == 200); \
+          sys.exit(0 if ok else 1); \
   except Exception: \
-    sys.exit(1)"
+      sys.exit(1)"
 
 # Drop privileges
 USER appuser
@@ -93,25 +97,29 @@ LABEL org.opencontainers.image.title="Universal A2A Agent" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Entrypoint script for flexible runtime tuning via env vars
-COPY --chown=appuser:appuser <<EOF /app/entrypoint.sh
+COPY --chown=appuser:appuser <<'EOF' /app/entrypoint.sh
 #!/bin/sh
 set -e
 
-# Use environment variables with sensible defaults
-: "\${PORT:=8000}"
-: "\${WORKERS:=2}"
-: "\${TIMEOUT:=60}"
-: "\${KEEP_ALIVE:=5}"
-: "\${LOG_LEVEL:=info}"
+# Use environment variables with sensible, POSIX-compliant defaults
+PORT=${PORT:-8000}
+WORKERS=${WORKERS:-2}
+TIMEOUT=${TIMEOUT:-60}
+KEEP_ALIVE=${KEEP_ALIVE:-5}
+LOG_LEVEL=${LOG_LEVEL:-info}
+
+# Show startup context (useful in k8s logs)
+echo "[entrypoint] Starting Universal A2A on :$PORT (workers=$WORKERS, timeout=$TIMEOUT, keep-alive=$KEEP_ALIVE, log=$LOG_LEVEL)"
+echo "[entrypoint] Provider=$LLM_PROVIDER Framework=$AGENT_FRAMEWORK PublicURL=$PUBLIC_URL"
 
 # Execute Gunicorn with the configured parameters
 exec gunicorn \
     -k uvicorn.workers.UvicornWorker \
-    -w "\${WORKERS}" \
-    -b "0.0.0.0:\${PORT}" \
-    --timeout "\${TIMEOUT}" \
-    --keep-alive "\${KEEP_ALIVE}" \
-    --log-level "\${LOG_LEVEL}" \
+    -w "${WORKERS}" \
+    -b "0.0.0.0:${PORT}" \
+    --timeout "${TIMEOUT}" \
+    --keep-alive "${KEEP_ALIVE}" \
+    --log-level "${LOG_LEVEL}" \
     --access-logfile - \
     --error-logfile - \
     a2a_universal.server:app

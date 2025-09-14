@@ -32,3 +32,4 @@ def make_response(text: str, req_body: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(req_body, dict) and TRACE_KEY in req_body:
         out[TRACE_KEY] = req_body.get(TRACE_KEY)
     return out
+

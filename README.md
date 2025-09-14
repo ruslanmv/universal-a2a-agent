@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/AutoGen-Function_Tool-8A2BE2?logo=python&logoColor=white" alt="AutoGen">
   <img src="https://img.shields.io/badge/BeeAI-A2A_Agent-111111?logo=apache&logoColor=white" alt="BeeAI">
   <img src="https://img.shields.io/badge/MCP-Gateway_Ready-0A84FF?logo=protocol&logoColor=white" alt="MCP">
-<a href="https://github.com/agent-matrix/matrix-hub"><img src="https://img.shields.io/badge/MatrixHub-Ready-brightgreen?logo=matrix&logoColor=white" alt="MatrixHub Ready"></a>
+  <a href="https://github.com/agent-matrix/matrix-hub"><img src="https://img.shields.io/badge/MatrixHub-Ready-brightgreen?logo=matrix&logoColor=white" alt="MatrixHub Ready"></a>
 </p>
 
 <p align="center">
@@ -49,6 +49,20 @@
 
 ---
 
+## What’s new in this upgrade (🚀 Production-Ready)
+
+**Pluggable Provider *and* Framework layers** with runtime **injection**, **async execution**, **structured JSON logs**, and **typed Pydantic settings**.
+
+* ✅ **Provider plugins** (OpenAI, watsonx.ai, Anthropic, Gemini, Azure OpenAI, Bedrock, Ollama, Echo, …)
+* ✅ **Framework plugins** (Native pass-through, LangGraph, CrewAI) — choose at deploy time
+* ✅ **Injection:** `AGENT_FRAMEWORK` receives the built `LLM_PROVIDER`
+* ✅ **Async-safe:** sync providers run via an async shim (no event-loop blocking)
+* ✅ **/readyz** reflects **both** provider and framework readiness
+* ✅ **OpenAI-compatible** endpoint for UIs & orchestrators
+* ✅ **Private adapter** (enterprise) with pluggable auth (NONE/BEARER/API\_KEY)
+
+---
+
 ## Table of contents
 
 * [Project tree](#project-tree)
@@ -57,6 +71,7 @@
 * [Environment](#environment-envexample)
 * [Endpoints](#endpoints)
 * [Agent Card](#agent-card)
+* [Providers & Frameworks (runtime selection)](#providers--frameworks-runtime-selection)
 * [Adapters & examples](#adapters--examples)
 
   * [LangChain](#langchain)
@@ -65,6 +80,7 @@
   * [CrewAI](#crewai)
   * [Bee / BeeAI](#bee--beeai)
   * [AutoGen](#autogen)
+* [Quick Start — watsonx.ai backed examples](#quick-start--watsonxai-backed-examples)
 * [Testing & CI](#testing--ci)
 * [Docker & Helm](#docker--helm)
 * [MCP Gateway](#mcp-gateway)
@@ -81,7 +97,6 @@
 ## Project tree
 
 ```
-
 universal-a2a-agent/
 ├─ pyproject.toml
 ├─ README.md                          # (this document)
@@ -91,19 +106,38 @@ universal-a2a-agent/
 ├─ run.sh
 ├─ src/
 │  └─ a2a_universal/
-│     ├─ **init**.py
-│     ├─ server.py                    # FastAPI app: /a2a, /rpc, /openai/v1/chat/completions, private adapter
+│     ├─ __init__.py
+│     ├─ config.py                    # NEW: Pydantic settings (env-driven)
+│     ├─ logging_config.py            # NEW: Structured JSON logging
+│     ├─ server.py                    # FastAPI app: /a2a, /rpc, /openai, private adapter
 │     ├─ models.py                    # Pydantic data models (A2A, JSON-RPC)
 │     ├─ card.py                      # Agent Card at /.well-known/agent-card.json
 │     ├─ client.py                    # Thin HTTP client
 │     ├─ cli.py                       # a2a CLI (ping, card)
+│     ├─ providers.py                 # Provider registry & factory (auto-discovery)
+│     ├─ provider_plugins/            # Built-in providers (echo, openai, watsonx, ...)
+│     │  ├─ __init__.py
+│     │  ├─ echo.py
+│     │  ├─ openai.py
+│     │  ├─ watsonx.py
+│     │  ├─ ollama.py
+│     │  ├─ anthropic.py
+│     │  ├─ gemini.py
+│     │  ├─ azure_openai.py
+│     │  └─ bedrock.py
+│     ├─ frameworks.py                # NEW: Framework registry & factory (auto-discovery)
+│     ├─ framework_plugins/           # NEW: Built-in frameworks (native, langgraph, crewai)
+│     │  ├─ __init__.py
+│     │  ├─ native.py
+│     │  ├─ langgraph.py
+│     │  └─ crewai.py
 │     └─ adapters/
-│        ├─ langchain_tool.py         # LangChain tool wrapper
-│        ├─ langgraph_node.py         # LangGraph (legacy dict-state) node
-│        ├─ langgraph_agent.py        # LangGraph (native MessagesState) agent node
+│        ├─ langchain_tool.py         # (optional) LangChain tool wrapper
+│        ├─ langgraph_node.py         # (legacy dict-state) node
+│        ├─ langgraph_agent.py        # (native MessagesState) agent node
 │        ├─ crewai_tool.py            # CrewAI function tool
-│        ├─ crewai_base_tool.py       # CrewAI BaseTool class (deep integration)
-│        ├─ bee_tool.py               # Bee (legacy) callable
+│        ├─ crewai_base_tool.py       # CrewAI BaseTool class
+│        ├─ bee_tool.py               # Bee callable
 │        ├─ beeai_agent.py            # BeeAI Framework agent wrapper
 │        ├─ autogen_tool.py           # AutoGen registered function
 │        └─ private_adapter.py        # Private enterprise adapter mapping helpers
@@ -116,7 +150,10 @@ universal-a2a-agent/
 │  ├─ crewai_deep_example.py
 │  ├─ bee_example.py
 │  ├─ beeai_framework_agent.py
-│  └─ autogen_example.py
+│  ├─ autogen_example.py
+│  ├─ quickstart_langchain_watsonx.py # NEW: watsonx-backed LC example
+│  ├─ quickstart_langgraph_watsonx.py # NEW: watsonx-backed LangGraph example
+│  └─ quickstart_crewai_watsonx.py    # NEW: watsonx-backed CrewAI example
 ├─ deploy/
 │  └─ helm/
 │     └─ universal-a2a-agent/
@@ -129,15 +166,14 @@ universal-a2a-agent/
 │           ├─ configmap.yaml
 │           └─ secret.yaml
 └─ tests/
-├─ test_server.py
-└─ test_langgraph_agent.py
-
+   ├─ test_server.py
+   └─ test_langgraph_agent.py
 ```
 
 > **Why this layout works**
 >
 > * **Single runtime**: one FastAPI app exposes multiple integration-friendly endpoints.
-> * **Adapters**: tiny, focused wrappers. Keep your business logic in the service, not in every framework.
+> * **Plugins**: providers & frameworks are discovered at runtime (or via entry points).
 > * **Deployability**: Dockerfile + Helm chart = drop-in for most clusters.
 
 ---
@@ -154,19 +190,24 @@ python -m venv .venv && source .venv/bin/activate
 
 # 3) install core
 pip install -e .
-# adapters (all)
+# (optional) everything
 pip install -e .[all]
 
-# 4) run the server
-./run.sh
-# or
+# 4) pick a Provider + Framework (any combo)
+export LLM_PROVIDER=echo             # echo|openai|watsonx|ollama|anthropic|gemini|azure_openai|bedrock
+export AGENT_FRAMEWORK=native        # native|langgraph|crewai
+
+# 5) run the server
 uvicorn a2a_universal.server:app --host 0.0.0.0 --port 8000 --reload
 
-# 5) smoke test (A2A)
+# 6) smoke test (A2A)
 curl -s http://localhost:8000/a2a -H 'Content-Type: application/json' -d '{
   "method":"message/send",
   "params":{"message":{"role":"user","messageId":"m1","parts":[{"type":"text","text":"ping"}]}}
 }' | jq
+
+# readiness (shows provider+framework)
+curl -s http://localhost:8000/readyz | jq
 ```
 
 > **Fast path for humans**
@@ -181,13 +222,11 @@ curl -s http://localhost:8000/a2a -H 'Content-Type: application/json' -d '{
 # Core (FastAPI server + CLI + client)
 pip install -e .
 
-# Optional adapters
-pip install -e .[langchain]
+# Optional provider/framework extras
+pip install -e .[openai]
+pip install -e .[watsonx]
 pip install -e .[langgraph]
 pip install -e .[crewai]
-pip install -e .[autogen]
-pip install -e .[beeai]
-
 # Everything
 pip install -e .[all]
 ```
@@ -199,21 +238,32 @@ pip install -e .[all]
 ## Environment (.env.example)
 
 ```env
-A2A_HOST=0.0.0.0
-A2A_PORT=8000
+# Core server
+HOST=0.0.0.0
+PORT=8000
 PUBLIC_URL=http://localhost:8000
-AGENT_NAME=Universal A2A Hello
-AGENT_DESCRIPTION=Greets the user and echoes their message.
-AGENT_VERSION=1.2.0
-PROTOCOL_VERSION=0.3.0
 
-# Private adapter (enterprise) — off by default
+# Selection (runtime injection)
+LLM_PROVIDER=echo                  # Provider id
+AGENT_FRAMEWORK=native             # Framework id
+
+# CORS (tighten for prod)
+CORS_ALLOW_ORIGINS=*
+CORS_ALLOW_CREDENTIALS=false
+CORS_ALLOW_METHODS=*
+CORS_ALLOW_HEADERS=*
+
+# Provider creds (examples)
+OPENAI_API_KEY=
+WATSONX_API_KEY=
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+WATSONX_PROJECT_ID=
+MODEL_ID=ibm/granite-3-3-8b-instruct
+
+# Private adapter (enterprise)
 PRIVATE_ADAPTER_ENABLED=false        # true|false
 PRIVATE_ADAPTER_AUTH_SCHEME=NONE     # NONE|BEARER|API_KEY
 PRIVATE_ADAPTER_AUTH_TOKEN=
-PRIVATE_ADAPTER_INPUT_KEY=input
-PRIVATE_ADAPTER_OUTPUT_KEY=output
-PRIVATE_ADAPTER_TRACE_KEY=traceId
 PRIVATE_ADAPTER_PATH=/enterprise/v1/agent
 ```
 
@@ -260,6 +310,8 @@ PRIVATE_ADAPTER_PATH=/enterprise/v1/agent
 
 * `GET /healthz` — liveness probe
 
+* `GET /readyz` — readiness for **provider & framework**
+
 > **Which one should I use?**
 >
 > * **LangGraph/LangChain/CrewAI/AutoGen**: prefer `/rpc` **or** `/a2a` via the provided adapters.
@@ -290,6 +342,30 @@ PRIVATE_ADAPTER_PATH=/enterprise/v1/agent
 ```
 
 > **Why it matters**: Many gateways (MCP, BeeAI, etc.) can auto-discover your agent via this well-known card.
+
+---
+
+## Providers & Frameworks (runtime selection)
+
+Pick any **Provider** and any **Framework** at deploy time:
+
+```bash
+# Examples
+export LLM_PROVIDER=openai           # or watsonx|ollama|anthropic|gemini|azure_openai|bedrock|echo
+export AGENT_FRAMEWORK=langgraph     # or native|crewai
+```
+
+Under the hood:
+
+* `providers.py` builds the selected Provider plugin
+* `frameworks.py` builds the selected Framework plugin and **injects** the Provider
+* The server routes requests to `await framework.execute(messages)` (async); sync providers are offloaded to a worker thread
+* `/readyz` shows both `provider_*` and `framework_*` readiness and reasons
+
+> Third-parties can ship providers/frameworks via setuptools **entry points**:
+>
+> * Providers: `a2a_universal.providers`
+> * Frameworks: `a2a_universal.frameworks`
 
 ---
 
@@ -450,6 +526,136 @@ from ..client import A2AClient
 @register_function("a2a_hello", description="Send text to A2A agent and return reply")
 def a2a_hello(text: str, base_url: str = "http://localhost:8000", use_jsonrpc: bool = False) -> str:
     return A2AClient(base_url).send(text, use_jsonrpc=use_jsonrpc)
+```
+
+---
+
+## Quick Start — watsonx.ai backed examples
+
+> Run the server with watsonx.ai:
+>
+> ```bash
+> pip install -e .[watsonx]
+> export LLM_PROVIDER=watsonx
+> export WATSONX_API_KEY=YOUR_KEY
+> export WATSONX_URL=https://us-south.ml.cloud.ibm.com
+> export WATSONX_PROJECT_ID=YOUR_PROJECT_ID
+> export MODEL_ID=ibm/granite-3-3-8b-instruct
+> export AGENT_FRAMEWORK=native
+> uvicorn a2a_universal.server:app --port 8000
+> curl -s localhost:8000/readyz | jq
+> ```
+
+**1) LangChain — Tool that calls A2A (watsonx-backed)**
+
+```python
+# examples/quickstart_langchain_watsonx.py
+import httpx
+from langchain.agents import initialize_agent, AgentType
+from langchain_core.tools import Tool
+from langchain_openai import ChatOpenAI  # any LC LLM is fine as the "driver"
+
+BASE = "http://localhost:8000"
+
+def a2a_call(prompt: str) -> str:
+    payload = {
+        "method": "message/send",
+        "params": {"message": {"role": "user", "messageId": "lc-tool", "parts": [{"type": "text", "text": prompt}]}}
+    }
+    r = httpx.post(f"{BASE}/a2a", json=payload, timeout=30.0)
+    r.raise_for_status()
+    data = r.json()
+    for p in (data.get("message") or {}).get("parts", []):
+        if p.get("type") == "text":
+            return p.get("text", "")
+    return ""
+
+tool = Tool(name="a2a_hello", description="Call Universal A2A (watsonx-backed)", func=a2a_call)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+agent = initialize_agent([tool], llm=llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+
+if __name__ == "__main__":
+    print(agent.run("Use the a2a_hello tool to say hello to LangChain."))
+```
+
+**2) LangGraph — Node that posts to A2A (watsonx-backed)**
+
+```python
+# examples/quickstart_langgraph_watsonx.py
+import asyncio
+import httpx
+from langgraph.graph import StateGraph, END, MessagesState
+from langchain_core.messages import HumanMessage, AIMessage
+
+BASE = "http://localhost:8000"
+
+async def a2a_send(text: str) -> str:
+    payload = {
+        "method": "message/send",
+        "params": {"message": {"role": "user", "messageId": "lg-node", "parts": [{"type": "text", "text": text}]}}
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(f"{BASE}/a2a", json=payload)
+        r.raise_for_status()
+        data = r.json()
+        for p in (data.get("message") or {}).get("parts", []):
+            if p.get("type") == "text":
+                return p.get("text", "")
+    return ""
+
+async def a2a_node(state: dict) -> dict:
+    last = state["messages"][-1]
+    user_text = getattr(last, "content", "")
+    reply = await a2a_send(user_text)
+    return {"messages": [AIMessage(content=reply)]}
+
+g = StateGraph(MessagesState)
+g.add_node("a2a", a2a_node)
+g.add_edge("__start__", "a2a")
+g.add_edge("a2a", END)
+app = g.compile()
+
+async def main():
+    out = await app.ainvoke({"messages": [HumanMessage(content="ping from LangGraph")]})
+    print(out["messages"][-1].content)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**3) CrewAI — Crew tool that calls A2A (watsonx-backed)**
+
+```python
+# examples/quickstart_crewai_watsonx.py
+import httpx
+from crewai import Agent, Task, Crew
+
+BASE = "http://localhost:8000"
+
+def a2a_call(prompt: str) -> str:
+    payload = {
+        "method": "message/send",
+        "params": {"message": {"role": "user", "messageId": "crewai-tool", "parts": [{"type": "text", "text": prompt}]}}
+    }
+    r = httpx.post(f"{BASE}/a2a", json=payload, timeout=30.0)
+    r.raise_for_status()
+    data = r.json()
+    for p in (data.get("message") or {}).get("parts", []):
+        if p.get("type") == "text":
+            return p.get("text", "")
+    return ""
+
+if __name__ == "__main__":
+    researcher = Agent(
+        role="Researcher",
+        goal="Use the A2A tool (watsonx-backed) to answer user prompts",
+        backstory="Loves calling external agents.",
+        tools=[a2a_call],
+    )
+
+    task = Task(description="Say hello to CrewAI and summarize the word 'ping' in one sentence.", agent=researcher)
+    result = Crew(agents=[researcher], tasks=[task]).kickoff()
+    print(result)
 ```
 
 ---
@@ -651,8 +857,9 @@ DERIVE_TOOLS_FROM_MCP=true
 > **Troubleshooting**
 >
 > * **401 Unauthorized**: check `PRIVATE_ADAPTER_*` or your Bearer/API key headers.
+> * **415/400 on /openai**: ensure `Content-Type: application/json` and valid body.
 > * **Empty replies**: ensure you’re sending a `messages` array (OpenAI route) or a `text` part (A2A/JSON-RPC).
-> * **CORS**: if calling from browsers, add CORS middleware or call via your backend.
+> * **CORS**: if calling from browsers, set `CORS_*` envs or call via your backend.
 
 ---
 
