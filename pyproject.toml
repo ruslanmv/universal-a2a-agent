@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-a2a-agent"
-version = "0.1.1"
+version = "0.1.2"
 description = "Framework-agnostic A2A agent with pluggable Providers & Frameworks (MCP, LangChain, LangGraph, CrewAI, BeeAI, AutoGen, watsonx.ai)"
 readme = "README.md"
 authors = [{ name = "Ruslan Magana Vsevolodovna", email = "contact@ruslanmv.com" }]
@@ -39,7 +39,7 @@ beeai = ["beeai-framework>=0.1.44"]
 
 # --- Provider plugins ---
 openai = ["openai>=1.0"]
-watsonx = ["ibm-watsonx-ai>=1.0"]
+watsonx = ["ibm-watsonx-ai>=1.1.15"]
 anthropic = ["anthropic>=0.30"]
 gemini = ["google-generativeai>=0.7"]
 azure_openai = ["openai>=1.0"]
