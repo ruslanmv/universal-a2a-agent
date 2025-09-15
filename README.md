@@ -914,20 +914,10 @@ DERIVE_TOOLS_FROM_MCP=true
 > * **CORS**: if calling from browsers, set `CORS_*` envs or call via your backend.
 
 ---
-
 ## Versioning
 
 * Semantic versioning (`MAJOR.MINOR.PATCH`).
 * The Agent Card `version` tracks runtime features; adapters are backward-compatible within a minor series.
-
----
-
-## Contributing
-
-1. Fork the repo and create a feature branch.
-2. Add tests (see `tests/`).
-3. Run `pytest -q` locally, ensure CI passes.
-4. Open a PR with a clear description and rationale.
 
 ---
 
@@ -945,3 +935,204 @@ You may obtain a copy of the License at
 ```
 
 See the [LICENSE](LICENSE) file for full terms.
+
+## Contributing
+
+1. Fork the repo and create a feature branch.
+2. Add tests (see `tests/`).
+3. Run `pytest -q` locally, ensure CI passes.
+4. Open a PR with a clear description and rationale.
+
+---
+
+
+## 🛠 How to Create New Agents with Universal A2A Agent
+
+Universal A2A makes it simple to add your own **custom providers** (LLM backends) or **frameworks** (orchestrators).
+
+Let’s design a **real-world, everyday IT Agent** example: a **DebuggerAgent** 🔧.
+This agent takes an **error message + code snippet** from the user, analyzes it, and suggests fixes.
+If Watsonx.ai is available, it uses it to generate improved suggestions.
+
+
+
+## 🔧 Example usage:
+
+## 1. Create the Provider (`debugger_provider.py`)
+
+Add under `src/a2a_universal/providers/`:
+
+````python
+# src/a2a_universal/providers/debugger_provider.py
+from .base import ProviderBase
+import httpx
+import os
+import textwrap
+
+class DebuggerAgentProvider(ProviderBase):
+    id = "debugger"
+    name = "Debugger Agent"
+
+    async def complete(self, messages: list[dict]) -> str:
+        """
+        Debugger agent:
+        - Accepts an error log and code snippet
+        - If watsonx.ai API key is available, use it for analysis & fix
+        - Otherwise, return a template suggestion
+        """
+        user_input = messages[-1]["content"]
+
+        # If no AI backend is available, give a basic rule-based reply
+        if not os.getenv("WATSONX_API_KEY"):
+            return textwrap.dedent(f"""
+            🐞 DebuggerAgent (offline mode):
+            I received your error/code:
+            ```
+            {user_input[:300]}...
+            ```
+            Suggestion: Check syntax, missing imports, or variable names.
+            (Enable Watsonx.ai for deeper debugging.)
+            """)
+
+        # Forward to watsonx.ai for real debugging
+        api_key = os.getenv("WATSONX_API_KEY")
+        model_id = os.getenv("WATSONX_MODEL", "ibm/granite-13b-chat-v2")
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                "https://us-south.ml.cloud.ibm.com/v1/generation/text",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model_id": model_id,
+                    "input": f"You are a coding debugger. The user provided error/code:\n\n{user_input}\n\nPlease analyze the error and propose a fix with corrected code.",
+                    "parameters": {"max_new_tokens": 400},
+                },
+            )
+            data = resp.json()
+            return data.get("results", [{}])[0].get("generated_text", "⚠️ Watsonx.ai did not return a fix.")
+````
+
+---
+
+## 2. Run the Server with DebuggerAgent
+
+```bash
+export LLM_PROVIDER=debugger
+uvicorn a2a_universal.server:app --reload --port 8000
+```
+
+Check health:
+
+```bash
+curl http://localhost:8000/healthz
+```
+
+---
+
+## 3. Test DebuggerAgent (via A2A API)
+
+### Example request:
+
+```bash
+curl -s http://localhost:8000/a2a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{
+          "type": "text",
+          "text": "Error: NameError: name x is not defined\n\nCode:\nprint(x + 5)"
+        }]
+      }
+    }
+  }'
+```
+
+✅ Expected response (offline fallback):
+
+```
+🐞 DebuggerAgent (offline mode):
+I received your error/code:
+```
+
+```python
+Error: NameError: name x is not defined
+print(x + 5)
+```
+
+```
+Suggestion: Define variable `x` before using it.
+```
+
+✅ Expected response (with Watsonx.ai enabled):
+
+```
+The error occurs because `x` is undefined. Define `x` before printing:
+```
+
+```python
+x = 5
+print(x + 5)
+```
+
+---
+
+## 4. Use DebuggerAgent in LangGraph
+
+`debugger_graph.py`:
+
+```python
+from langgraph.graph import StateGraph, END, MessagesState
+from langchain_core.messages import HumanMessage
+from a2a_universal.adapters.langgraph_agent import A2AAgentNode
+
+def run_debugger_graph():
+    sg = StateGraph(MessagesState)
+
+    sg.add_node("debugger", A2AAgentNode(base_url="http://localhost:8000"))
+    sg.add_edge("__start__", "debugger")
+    sg.add_edge("debugger", END)
+
+    app = sg.compile()
+
+    res = app.invoke({
+        "messages": [HumanMessage(content="Error: TypeError: unsupported operand type(s) for +: 'int' and 'str'\n\nCode:\nprint(5 + 'hello')")]
+    })
+    print(res["messages"][-1].content)
+
+if __name__ == "__main__":
+    run_debugger_graph()
+```
+
+Run it:
+
+```bash
+python debugger_graph.py
+```
+
+Output (Watsonx.ai enabled):
+
+```
+Fix: Convert the string to int or the int to string.
+Corrected code:
+
+print(str(5) + "hello")
+```
+
+---
+
+👉 This is a **practical, everyday IT tool** — every developer pastes stack traces or errors. Now you can debug them universally across frameworks and providers.
+
+---
+
+## 📚 Learn More
+
+For more information, detailed documentation, and additional tutorials, please check the repository:  
+👉 [universal-a2a-agent-tutorial](https://github.com/ruslanmv/universal-a2a-agent-tutorial)
+
+---
+
+💡 *Universal A2A Agent makes your agents portable, interoperable, and production-ready.*  
+Build once, run anywhere. 🚀
