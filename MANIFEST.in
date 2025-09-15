@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+recursive-include src/a2a_universal *.py
+recursive-include src/a2a_universal *.json
+recursive-include src/a2a_universal *.yaml
+recursive-include src/a2a_universal *.yml

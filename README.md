@@ -3,6 +3,7 @@
   Professional edition with badges, logos, and end-to-end instructions
   License: Apache-2.0
 ======================================================================= -->
+# Universal A2A Agent (Python)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python 3.9+">
@@ -33,7 +34,7 @@
 
 ---
 
-# Universal A2A Agent (Python)
+
 
 *A production-ready, framework-agnostic A2A service with first-class support for MatrixHub, MCP Gateway, LangChain, **LangGraph (native MessagesState)**, CrewAI, BeeAI Framework, AutoGen, and Watsonx Orchestrate. A private enterprise adapter is included behind env flags (undocumented by design).*
 
@@ -49,18 +50,61 @@
 
 ---
 
-## What’s new in this upgrade (🚀 Production-Ready)
+🌐 What is Universal A2A?
 
-**Pluggable Provider *and* Framework layers** with runtime **injection**, **async execution**, **structured JSON logs**, and **typed Pydantic settings**.
+Universal A2A (Agent-to-Agent) is a framework-agnostic, provider-agnostic bridge layer that standardizes how agents talk to each other, tools, and orchestrators.
 
-* ✅ **Provider plugins** (OpenAI, watsonx.ai, Anthropic, Gemini, Azure OpenAI, Bedrock, Ollama, Echo, …)
-* ✅ **Framework plugins** (Native pass-through, LangGraph, CrewAI) — choose at deploy time
-* ✅ **Injection:** `AGENT_FRAMEWORK` receives the built `LLM_PROVIDER`
-* ✅ **Async-safe:** sync providers run via an async shim (no event-loop blocking)
-* ✅ **/readyz** reflects **both** provider and framework readiness
-* ✅ **OpenAI-compatible** endpoint for UIs & orchestrators
-* ✅ **Private adapter** (enterprise) with pluggable auth (NONE/BEARER/API\_KEY)
+Think of it as a universal adapter for AI agents:
 
+- It abstracts away differences between frameworks (LangGraph, CrewAI, AutoGen, BeeAI, …)
+- It abstracts away differences between model providers (OpenAI, Anthropic Claude, Gemini, Ollama, watsonx.ai, Bedrock, Azure OpenAI, …)
+- It exposes common APIs (A2A RPC, JSON-RPC, OpenAI-compatible endpoints) so any external client or orchestrator can connect without custom glue code.
+
+---
+
+🎯 The Scope of the Project
+
+- Normalize communication between heterogeneous AI frameworks and providers.
+- Provide a standard runtime (FastAPI server) with consistent endpoints:
+  - `/a2a` → raw A2A calls  
+  - `/rpc` → JSON-RPC 2.0  
+  - `/openai/v1/chat/completions` → OpenAI-compatible  
+  - `/enterprise/v1/agent` → private/enterprise adapter
+- Pluggable system: drop in a new provider or framework via a plugin folder—no core code changes needed.
+- Production-ready containerization: ships with Dockerfile, Compose, CI/CD workflows for DockerHub + GHCR.
+
+---
+
+🧩 What Problem Does It Solve?
+
+Today, the agent ecosystem is fragmented:
+
+- Frameworks (LangChain, CrewAI, LangGraph, AutoGen) each expect a different interface.
+- Providers (OpenAI, Anthropic, Ollama, Gemini, Bedrock) each return results in different shapes.
+- Orchestrators (UI layers, pipelines, workflows) often assume OpenAI’s API.
+
+➡️ Universal A2A solves this by unifying them all into one universal surface.
+
+- Developers can swap providers (e.g. OpenAI → Ollama) without rewriting agents.
+- Enterprises can standardize APIs for internal orchestration, regardless of what the underlying LLM is.
+- Framework authors can plug in seamlessly without reinventing transport layers.
+
+
+
+---
+
+🔑 Why Is It Important?
+
+- **Interoperability** → Agents, frameworks, and providers can talk to each other with minimal friction.  
+- **Portability** → Build an agent once, run it anywhere (local, cloud, enterprise).  
+- **Future-proofing** → As new frameworks/providers emerge, they just need a plugin, not a fork of the server.  
+- **Enterprise readiness** → Health checks, structured logging, auth adapters, Docker CI/CD out of the box.  
+
+In short:
+
+👉 Universal A2A is the “universal translator” for AI agents.
+
+It ensures that no matter what model or framework you use, your agents can speak the same language and be deployed in a reliable, production-ready way.
 ---
 
 ## Table of contents
@@ -843,6 +887,12 @@ MCP_GATEWAY_TOKEN=Bearer <your-token>
 DERIVE_TOOLS_FROM_MCP=true
 ```
 
+
+## Diagram
+
+<img src="assets/2025-09-15-09-39-25.png" width="75%">
+
+
 ---
 
 ## Security & ops notes
@@ -853,6 +903,8 @@ DERIVE_TOOLS_FROM_MCP=true
 * Rotate tokens and restrict scopes in your orchestrators.
 * Health checks: `GET /healthz`. Add readiness probes as your rollout requires.
 * Observability: front with nginx/envoy for access logs; add OpenTelemetry to FastAPI if you need traces.
+
+
 
 > **Troubleshooting**
 >
@@ -884,7 +936,7 @@ DERIVE_TOOLS_FROM_MCP=true
 ```
 Apache License, Version 2.0
 
-Copyright (c) 2025 YOUR
+Copyright (c) 2025 ruslanmv.com
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this project except in compliance with the License.
 You may obtain a copy of the License at
