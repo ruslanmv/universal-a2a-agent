@@ -14,3 +14,4 @@ build/
 * copy.*
 * copy *.*
 /deploy
+.env.exports

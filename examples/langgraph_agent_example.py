@@ -9,5 +9,5 @@ g.add_edge("a2a", END)
 app = g.compile()
 
 if __name__ == "__main__":
-    out = app.invoke({"messages": [HumanMessage(content="ping from LangGraph")]})
+    out = app.invoke({"messages": [HumanMessage(content="What is the capital of Italy?")]})
     print(out["messages"][-1].content)
