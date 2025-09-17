@@ -18,8 +18,8 @@ from a2a_universal.provider_api import llm as model  # auto-chooses CrewAI LLM b
 if __name__ == "__main__":
     # Get CrewAI LLM via active provider (e.g., LLM_PROVIDER=watsonx)
     try:
-        llm = crew_llm()
-        #llm = model()  # -> CrewAI LLM with model="watsonx/<MODEL_ID>", creds from env
+        #llm = crew_llm()
+        llm = model()  # -> CrewAI LLM with model="watsonx/<MODEL_ID>", creds from env
     except Exception as e:
         sys.stderr.write(f"[fatal] Could not initialize LLM: {e}\n")
         sys.exit(1)
