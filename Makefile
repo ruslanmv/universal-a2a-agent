@@ -103,7 +103,7 @@ help:
 	@echo -e "  make clean           - Remove temporary files like Python caches."
 	@echo -e "  make dist-clean      - Perform a full cleanup, including the virtual environment."
 	@echo -e "  make env             - Print key Makefile variables for debugging."
-	@echo -e "  make load-dotenv        - Print export commands for your shell (use: eval \$$(make load-dotenv))."
+	@echo -e "  make load-dotenv     - Print export commands for your shell (use: eval \$$(make load-dotenv))."
 	@echo -e ""
 
 # ==============================================================================
@@ -158,6 +158,7 @@ wizard:
 # ==============================================================================
 run: install
 	@echo -e "$(C_GREEN)▶️  [run] Starting server at http://$(HOST):$(PORT) (loading .env...)$(C_RESET)"
+	@echo -e "$(C_GREEN)Executing: $(LOAD_ENV) $(UVICORN) a2a_universal.server:app --host $(HOST) --port $(PORT)$(C_RESET)"
 	@$(LOAD_ENV) $(UVICORN) a2a_universal.server:app --host $(HOST) --port $(PORT)
 
 run-dev: install
