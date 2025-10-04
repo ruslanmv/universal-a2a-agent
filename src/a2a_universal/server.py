@@ -1,77 +1,115 @@
-# src/a2a_universal/server.py
+# SPDX-License-Identifier: Apache-2.0
+"""
+FastAPI server for the Universal A2A Agent.
+
+This module sets up and runs the main web server, handling various API endpoints
+including A2A, JSON-RPC, and an OpenAI-compatible chat completion endpoint.
+It integrates dynamic provider and framework loading, structured logging,
+and production-ready security middleware.
+"""
+
 from __future__ import annotations
 
 import time
 import uuid
-import logging
-from typing import Any, Dict, List, Optional, Union, Tuple
+from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional, Union
 
-from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+import structlog
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, ValidationError
 
+# --- Local Application Imports ---
+from .adapters import private_adapter as pad
+from .card import agent_card
 from .config import settings
+from .frameworks import FrameworkBase, build_framework, list_frameworks
 from .logging_config import configure_logging
-from .providers import ProviderBase, build_provider
-from .frameworks import FrameworkBase, build_framework
 from .models import (
-    TextPart,
-    Message,
-    A2AResponse,
+    JSONRPCError,
     JSONRPCRequest,
     JSONRPCSuccess,
-    JSONRPCError,
+    Message,
+    TextPart,
 )
-from .card import agent_card
-from .adapters import private_adapter as pad
-
+from .providers import ProviderBase, build_provider, list_providers
 
 # =============================================================================
-# Logging & Application Setup
+# APPLICATION SETUP
 # =============================================================================
 
+# Initialize structured logging. This should be the first action.
 configure_logging()
-log = logging.getLogger("a2a.server")
+log = structlog.get_logger("a2a.server")
 
-def _log(level: str, event: str, **fields: Any) -> None:
-    """Structured logging helper: avoids double JSON encoding."""
-    fn = getattr(log, level, log.info)
-    fn(event, extra=fields)
-
-
-def _request_id(req: Request) -> str:
-    """Return incoming X-Request-ID or generate a new one."""
-    rid = req.headers.get("x-request-id")
-    return rid if rid else str(uuid.uuid4())
+# Load the selected provider and framework at startup.
+# This follows a "fail-fast" approach; if essential components cannot be
+# loaded, the application will not start correctly.
+PROVIDER: ProviderBase = build_provider()
+FRAMEWORK: FrameworkBase = build_framework(PROVIDER)
 
 
-def _with_diag_headers(rid: str) -> Dict[str, str]:
-    """Standard headers we attach to all responses."""
-    return {
-        "X-Request-ID": rid,
-        "Cache-Control": "no-store",
-    }
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Manages application startup and shutdown events.
+    This is the modern replacement for @app.on_event("startup").
+    """
+    log.info("Server startup sequence initiated...")
+
+    # Log discovered and active components for diagnostics.
+    all_providers = list_providers()
+    all_frameworks = list_frameworks()
+    log.info(
+        "Component discovery complete",
+        available_providers=all_providers,
+        available_frameworks=all_frameworks,
+    )
+    log.info(
+        "Active components initialized",
+        provider={"id": PROVIDER.id, "name": PROVIDER.name, "ready": PROVIDER.ready},
+        framework={"id": FRAMEWORK.id, "name": FRAMEWORK.name, "ready": FRAMEWORK.ready},
+    )
+
+    yield
+
+    log.info("Server shutdown sequence complete.")
 
 
-def _require_json(req: Request) -> None:
-    """Ensure Content-Type is application/json."""
-    ctype = (req.headers.get("content-type") or "").lower()
-    if "application/json" not in ctype:
-        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
-
-
-# FastAPI application
+# Initialize the FastAPI application.
 app = FastAPI(
     title=settings.AGENT_NAME or "Universal A2A Agent",
     version=settings.AGENT_VERSION or "0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    lifespan=lifespan,
+    # In a secure production environment, you might disable the docs:
+    # docs_url=None,
+    # redoc_url=None,
     openapi_url="/openapi.json",
 )
 
-# CORS (configurable; permissive defaults suitable for local/dev)
+
+# =============================================================================
+# MIDDLEWARE CONFIGURATION
+# =============================================================================
+# Middleware is processed in the reverse order it's added.
+
+# IMPORTANT: Add TrustedHostMiddleware to prevent Host header attacks.
+# In production, set the ALLOWED_HOSTS environment variable to a comma-separated
+# list of your domain names (e.g., "example.com,api.example.com").
+#
+# THE FIX: Use getattr to safely access ALLOWED_HOSTS. If the attribute
+# doesn't exist in the config, it defaults to ["*"] for backward compatibility.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=getattr(settings, "ALLOWED_HOSTS", ["*"]),
+)
+
+# Configure CORS (Cross-Origin Resource Sharing).
+# For production, `CORS_ALLOW_ORIGINS` should be a specific list of domains,
+# not the wildcard "*".
 app.add_middleware(
     CORSMiddleware,
     allow_origins=(settings.CORS_ALLOW_ORIGINS or ["*"]),
@@ -80,130 +118,140 @@ app.add_middleware(
     allow_headers=(settings.CORS_ALLOW_HEADERS or ["*"]),
 )
 
-# (Optional) Trusted hosts — if you wish to lock down Host headers in prod,
-# configure a list via env and uncomment below.
-# app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts or ["*"])
-
 
 # =============================================================================
-# Provider & Framework Initialization (Runtime Injection)
+# HELPER FUNCTIONS & MODELS
 # =============================================================================
 
-PROVIDER: ProviderBase = build_provider()
-FRAMEWORK: FrameworkBase = build_framework(PROVIDER)
 
-def _prov_meta(p: ProviderBase) -> Dict[str, Any]:
-    return {
-        "id": getattr(p, "id", "unknown"),
-        "name": getattr(p, "name", "unknown"),
-        "ready": bool(getattr(p, "ready", False)),
-        "reason": getattr(p, "reason", ""),
-    }
+def _get_request_id(req: Request) -> str:
+    """
+    Retrieves the X-Request-ID header or generates a new one.
+    This is crucial for request tracing and debugging across services.
+    """
+    return req.headers.get("x-request-id", f"gen-{uuid.uuid4()}")
 
-def _fw_meta(f: FrameworkBase) -> Dict[str, Any]:
+
+def _get_diag_headers(request_id: str) -> Dict[str, str]:
+    """
+    Returns standard diagnostic and security headers for all responses.
+    """
     return {
-        "id": getattr(f, "id", "unknown"),
-        "name": getattr(f, "name", "unknown"),
-        "ready": bool(getattr(f, "ready", False)),
-        "reason": getattr(f, "reason", ""),
+        "X-Request-ID": request_id,
+        "Cache-Control": "no-store",  # Prevents caching of sensitive API responses.
     }
 
 
-@app.on_event("startup")
-async def _on_startup() -> None:
-    _log("info", "startup", provider=_prov_meta(PROVIDER), framework=_fw_meta(FRAMEWORK))
+def _require_json_content_type(req: Request) -> None:
+    """
+    Raises an HTTPException if the request Content-Type is not application/json.
+    """
+    content_type = (req.headers.get("content-type") or "").lower()
+    if "application/json" not in content_type:
+        log.warning(
+            "Unsupported Content-Type",
+            content_type=content_type,
+            client_host=req.client.host if req.client else "unknown",
+        )
+        raise HTTPException(
+            status_code=415, detail="Content-Type must be application/json"
+        )
 
 
-# =============================================================================
-# Models & Helpers
-# =============================================================================
-
-def make_agent_message(text: str) -> Message:
-    return Message(
-        role="agent",
-        messageId=str(uuid.uuid4()),
-        parts=[TextPart(text=text)],
-    )
-
-
-def _extract_text_part(msg: Dict[str, Any]) -> str:
-    """Extract first text part from an A2A message (dict)."""
-    for p in (msg or {}).get("parts", []) or []:
-        if isinstance(p, dict) and (p.get("type") == "text" or p.get("kind") == "text"):
-            return p.get("text", "")
+def _extract_text_from_message(msg: Dict[str, Any]) -> str:
+    """
+    Safely extracts the first text part from a standard message dictionary.
+    """
+    for part in (msg or {}).get("parts", []):
+        # FIX: The model uses 'type', not 'kind'.
+        if isinstance(part, dict) and part.get("type") == "text":
+            return part.get("text", "")
     return ""
 
 
-# Minimal OpenAI chat schema (tolerant)
 class ChatMessage(BaseModel):
+    """Represents a single message in an OpenAI-compatible chat request."""
+
     role: str
-    content: Optional[Union[str, List[Union[str, Dict[str, Any]]]]] = None
+    content: Optional[Union[str, List[Dict[str, Any]]]] = None
 
 
 class ChatRequest(BaseModel):
-    model: Optional[str] = "universal-a2a-hello"
+    """Represents the body of an OpenAI-compatible chat completions request."""
+
+    model: Optional[str] = "universal-a2a-agent"
     messages: List[ChatMessage]
 
 
-def _to_text(content: Any) -> str:
-    """Normalize OpenAI-style content into a plain string."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: List[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-        return "\n".join([t for t in parts if t])
-    return ""
-
-
 # =============================================================================
-# Meta & Health
+# META & HEALTH ENDPOINTS
 # =============================================================================
+
 
 @app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    # Simple convenience: redirect to API docs
+async def root_redirect() -> RedirectResponse:
+    """Redirects the root path to the API documentation for convenience."""
     return RedirectResponse(url="/docs", status_code=307)
 
 
-@app.get("/healthz")
+@app.get("/healthz", tags=["Monitoring"])
 async def healthz(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    return JSONResponse({"status": "ok"}, headers=_with_diag_headers(rid))
+    """
+    A simple health check endpoint. Returns 200 OK if the server is running.
+    Does not check dependencies.
+    """
+    request_id = _get_request_id(req)
+    return JSONResponse({"status": "ok"}, headers=_get_diag_headers(request_id))
 
 
-@app.get("/readyz")
+@app.get("/readyz", tags=["Monitoring"])
 async def readyz(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    provider_ready = bool(getattr(PROVIDER, "ready", False))
-    framework_ready = bool(getattr(FRAMEWORK, "ready", False))
-    ok = provider_ready and framework_ready
-    payload = {
-        "status": "ready" if ok else "not-ready",
-        "provider": _prov_meta(PROVIDER),
-        "framework": _fw_meta(FRAMEWORK),
+    """
+    A readiness probe endpoint. Checks if the core components (Provider and
+    Framework) are ready to accept traffic.
+    """
+    request_id = _get_request_id(req)
+    provider_meta = {
+        "id": PROVIDER.id,
+        "ready": PROVIDER.ready,
+        "reason": PROVIDER.reason,
     }
-    return JSONResponse(payload, status_code=200 if ok else 503, headers=_with_diag_headers(rid))
+    framework_meta = {
+        "id": FRAMEWORK.id,
+        "ready": FRAMEWORK.ready,
+        "reason": FRAMEWORK.reason,
+    }
+
+    is_ready = PROVIDER.ready and FRAMEWORK.ready
+    status_code = 200 if is_ready else 503  # Service Unavailable
+
+    payload = {
+        "status": "ready" if is_ready else "not_ready",
+        "provider": provider_meta,
+        "framework": framework_meta,
+    }
+    return JSONResponse(
+        payload, status_code=status_code, headers=_get_diag_headers(request_id)
+    )
 
 
-@app.get("/.well-known/agent-card.json")
-async def card(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    return JSONResponse(agent_card(), headers=_with_diag_headers(rid))
+@app.get("/.well-known/agent-card.json", tags=["Discovery"])
+async def get_agent_card(req: Request) -> JSONResponse:
+    """Returns the agent's discovery card."""
+    request_id = _get_request_id(req)
+    return JSONResponse(agent_card(), headers=_get_diag_headers(request_id))
 
 
 # =============================================================================
-# A2A (Raw) Endpoint
+# CORE API ENDPOINTS
 # =============================================================================
 
-@app.post("/a2a")
+
+@app.post("/a2a", tags=["A2A"])
 async def a2a_endpoint(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    _require_json(req)
+    """Handles raw A2A message/send requests."""
+    request_id = _get_request_id(req)
+    _require_json_content_type(req)
 
     try:
         body = await req.json()
@@ -211,200 +259,186 @@ async def a2a_endpoint(req: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     if not (isinstance(body, dict) and body.get("method") == "message/send"):
-        raise HTTPException(status_code=400, detail="Unsupported A2A payload")
+        raise HTTPException(status_code=400, detail="Unsupported A2A payload structure")
 
-    params = body.get("params", {}) or {}
-    user_text = _extract_text_part(params.get("message", {}))
+    user_msg = body.get("params", {}).get("message", {})
+    user_text = _extract_text_from_message(user_msg)
+    context_id = user_msg.get("contextId")
 
-    # Execute via framework
     reply_text = await FRAMEWORK.execute([{"role": "user", "content": user_text}])
-    resp = A2AResponse(message=make_agent_message(reply_text)).model_dump()
+    agent_message = Message(
+        role="agent", parts=[TextPart(text=reply_text)], contextId=context_id
+    )
 
-    _log("info", "a2a.request",
-         request_id=rid,
-         method="message/send",
-         user_text_len=len(user_text),
-         provider=_prov_meta(PROVIDER),
-         framework=_fw_meta(FRAMEWORK))
+    log.info(
+        "A2A request processed",
+        request_id=request_id,
+        user_text_len=len(user_text),
+        reply_text_len=len(reply_text),
+    )
+    return JSONResponse(
+        {"result": agent_message.model_dump(exclude_none=True)},
+        headers=_get_diag_headers(request_id),
+    )
 
-    return JSONResponse(resp, headers=_with_diag_headers(rid))
 
+@app.post("/rpc", tags=["A2A"])
+async def jsonrpc_endpoint(req: Request) -> JSONResponse:
+    """Handles JSON-RPC 2.0 message/send requests."""
+    request_id = _get_request_id(req)
+    _require_json_content_type(req)
 
-# =============================================================================
-# JSON-RPC 2.0
-# =============================================================================
-
-@app.post("/rpc")
-async def jsonrpc(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    _require_json(req)
-
+    body = {}
     try:
         body = await req.json()
-    except Exception:
-        return JSONResponse(
-            JSONRPCError(id=None, error={"code": -32700, "message": "Parse error"}).model_dump(),
-            status_code=200,  # JSON-RPC spec uses 200 with error body
-            headers=_with_diag_headers(rid),
-        )
-
-    try:
-        rpc = JSONRPCRequest.model_validate(body)
+        rpc_request = JSONRPCRequest.model_validate(body)
     except ValidationError as e:
-        return JSONResponse(
-            JSONRPCError(
-                id=(body.get("id") if isinstance(body, dict) else None),
-                error={"code": -32600, "message": f"Invalid Request: {e}"},
-            ).model_dump(),
-            status_code=200,
-            headers=_with_diag_headers(rid),
+        log.warning(
+            "Invalid JSON-RPC request",
+            request_id=request_id,
+            error=str(e),
+            body=body,
         )
-
-    if rpc.method != "message/send":
-        return JSONResponse(
-            JSONRPCError(id=rpc.id, error={"code": -32601, "message": "Method not found"}).model_dump(),
-            status_code=200,
-            headers=_with_diag_headers(rid),
+        error_response = JSONRPCError(
+            id=body.get("id"),
+            error={"code": -32600, "message": "Invalid Request"},
         )
-
-    # Extract first text part
-    user_text = ""
-    for p in rpc.params.message.parts:
-        if p.type == "text":
-            user_text = p.text or ""
-            break
-
-    reply_text = await FRAMEWORK.execute([{"role": "user", "content": user_text}])
-
-    _log("info", "rpc.request",
-         request_id=rid,
-         method=rpc.method,
-         user_text_len=len(user_text),
-         provider=_prov_meta(PROVIDER),
-         framework=_fw_meta(FRAMEWORK))
-
-    return JSONResponse(
-        JSONRPCSuccess(id=rpc.id, result=A2AResponse(message=make_agent_message(reply_text))).model_dump(),
-        status_code=200,
-        headers=_with_diag_headers(rid),
-    )
-
-
-# =============================================================================
-# OpenAI Chat Completions (for UIs / Orchestrators)
-# =============================================================================
-
-@app.post("/openai/v1/chat/completions")
-async def openai_chat_completions(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    _require_json(req)
-
-    raw = await req.body()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty JSON body")
-
-    try:
-        payload = ChatRequest.model_validate_json(raw)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
-
-    # Convert to internal message shape
-    messages = [{"role": m.role, "content": _to_text(m.content)} for m in payload.messages]
-    reply_text = await FRAMEWORK.execute(messages)
-    now = int(time.time())
-
-    _log("info", "openai.request",
-         request_id=rid,
-         model=payload.model or "universal-a2a-hello",
-         turns=len(messages),
-         provider=_prov_meta(PROVIDER),
-         framework=_fw_meta(FRAMEWORK))
-
-    return JSONResponse(
-        {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion",
-            "created": now,
-            "model": payload.model or "universal-a2a-hello",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": reply_text},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        },
-        headers=_with_diag_headers(rid),
-    )
-
-
-# =============================================================================
-# Private Adapter (Enterprise)
-# =============================================================================
-
-_PRIV_ENABLED = settings.PRIVATE_ADAPTER_ENABLED
-_PRIV_SCHEME = (settings.PRIVATE_ADAPTER_AUTH_SCHEME or "NONE").upper()
-_PRIV_TOKEN = settings.PRIVATE_ADAPTER_AUTH_TOKEN or ""
-_PRIV_PATH = settings.PRIVATE_ADAPTER_PATH or "/enterprise/v1/agent"
-
-
-def _check_private_auth(req: Request) -> None:
-    if not _PRIV_ENABLED:
-        raise HTTPException(status_code=404, detail="Not Found")
-    if _PRIV_SCHEME == "NONE":
-        return
-    auth = req.headers.get("Authorization", "")
-    if _PRIV_SCHEME == "BEARER":
-        if not auth.startswith("Bearer ") or auth.split(" ", 1)[1] != _PRIV_TOKEN:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-    elif _PRIV_SCHEME == "API_KEY":
-        if req.headers.get("X-API-Key") != _PRIV_TOKEN:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-@app.post(_PRIV_PATH)
-async def private_adapter_endpoint(req: Request) -> JSONResponse:
-    rid = _request_id(req)
-    _check_private_auth(req)
-    _require_json(req)
-
-    try:
-        body = await req.json()
+        return JSONResponse(
+            error_response.model_dump(exclude_none=True),
+            status_code=200,
+            headers=_get_diag_headers(request_id),
+        )
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        error_response = JSONRPCError(
+            id=None,
+            error={"code": -32700, "message": "Parse error"},
+        )
+        return JSONResponse(
+            error_response.model_dump(exclude_none=True),
+            status_code=200,
+            headers=_get_diag_headers(request_id),
+        )
 
-    user_text = pad.extract_user_text(body)
+    if rpc_request.method != "message/send":
+        error_response = JSONRPCError(
+            id=rpc_request.id,
+            error={"code": -32601, "message": "Method not found"},
+        )
+        return JSONResponse(
+            error_response.model_dump(exclude_none=True),
+            status_code=200,
+            headers=_get_diag_headers(request_id),
+        )
+
+    user_msg = rpc_request.params.message
+    user_text = _extract_text_from_message(user_msg.model_dump())
+    context_id = user_msg.contextId
+
     reply_text = await FRAMEWORK.execute([{"role": "user", "content": user_text}])
-    resp = pad.make_response(reply_text, body)
+    agent_message = Message(
+        role="agent", parts=[TextPart(text=reply_text)], contextId=context_id
+    )
 
-    _log("info", "private.request",
-         request_id=rid,
-         payload_shape="enterprise",
-         provider=_prov_meta(PROVIDER),
-         framework=_fw_meta(FRAMEWORK))
+    success_response = JSONRPCSuccess(id=rpc_request.id, result=agent_message)
 
-    return JSONResponse(resp, headers=_with_diag_headers(rid))
+    log.info(
+        "JSON-RPC request processed",
+        request_id=request_id,
+        user_text_len=len(user_text),
+        reply_text_len=len(reply_text),
+    )
+    return JSONResponse(
+        success_response.model_dump(exclude_none=True),
+        status_code=200,
+        headers=_get_diag_headers(request_id),
+    )
+
+
+@app.post("/openai/v1/chat/completions", tags=["OpenAI"])
+async def openai_chat_completions(req: Request) -> JSONResponse:
+    """Provides an OpenAI-compatible endpoint for chat completions."""
+    request_id = _get_request_id(req)
+    _require_json_content_type(req)
+
+    try:
+        payload = ChatRequest.model_validate_json(await req.body())
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request body: {e}")
+
+    # Convert to the internal message format for the framework.
+    messages = [{"role": m.role, "content": str(m.content or "")} for m in payload.messages]
+
+    reply_text = await FRAMEWORK.execute(messages)
+
+    response_payload = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": payload.model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": reply_text},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+    log.info(
+        "OpenAI completion request processed",
+        request_id=request_id,
+        model=payload.model,
+        num_messages=len(messages),
+    )
+    return JSONResponse(response_payload, headers=_get_diag_headers(request_id))
 
 
 # =============================================================================
-# Global Exception Handlers (polish)
+# GLOBAL EXCEPTION HANDLERS
 # =============================================================================
-
-@app.exception_handler(ValidationError)
-async def _validation_error_handler(_: Request, exc: ValidationError) -> JSONResponse:
-    return JSONResponse({"error": "validation_error", "detail": str(exc)}, status_code=400)
-
-
-@app.exception_handler(HTTPException)
-async def _http_error_handler(req: Request, exc: HTTPException) -> JSONResponse:
-    rid = _request_id(req)
-    return JSONResponse({"error": exc.detail}, status_code=exc.status_code, headers=_with_diag_headers(rid))
 
 
 @app.exception_handler(Exception)
-async def _unhandled_error_handler(req: Request, exc: Exception) -> JSONResponse:
-    rid = _request_id(req)
-    _log("error", "unhandled.exception", request_id=rid, error=str(exc))
-    # Avoid leaking internals; log has details.
-    return JSONResponse({"error": "internal_error"}, status_code=500, headers=_with_diag_headers(rid))
+async def unhandled_exception_handler(req: Request, exc: Exception) -> JSONResponse:
+    """
+    Catches any unhandled exceptions and returns a generic 500 error.
+    This prevents leaking internal implementation details to the client.
+    The full traceback is logged for debugging.
+    """
+    request_id = _get_request_id(req)
+    log.error(
+        "Unhandled exception caught",
+        request_id=request_id,
+        path=req.url.path,
+        client=req.client.host if req.client else "unknown",
+        error=str(exc),
+        exc_info=True,  # This is critical for logging the stack trace.
+    )
+    return JSONResponse(
+        {"error": "Internal Server Error"},
+        status_code=500,
+        headers=_get_diag_headers(request_id),
+    )
+
+
+# =============================================================================
+# DEVELOPMENT SERVER LAUNCHER
+# =============================================================================
+
+if __name__ == "__main__":
+    # This block is for local development only.
+    # In production, use a process manager like Gunicorn with Uvicorn workers
+    # to run the 'app' object. Example:
+    # gunicorn -w 4 -k uvicorn.workers.UvicornWorker src.a2a_universal.server:app
+    import uvicorn
+
+    log.info("Starting server in development mode...")
+    uvicorn.run(
+        "src.a2a_universal.server:app",
+        host="0.0.0.0",
+        port=8080,
+        log_level="info",
+        reload=True,
+    )
+

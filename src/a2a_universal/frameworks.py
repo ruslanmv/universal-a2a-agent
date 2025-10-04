@@ -17,9 +17,12 @@ import inspect
 import os
 import pkgutil
 import asyncio
-from typing import Callable, Dict, Optional, Any
+import logging  # <-- 1. IMPORT LOGGING
+from typing import Callable, Dict, Any
 
 from .providers import ProviderBase
+
+log = logging.getLogger(__name__) # <-- 2. INITIALIZE LOGGER
 
 # ===== Base contract ============================================================
 
@@ -115,8 +118,10 @@ def _safe_factory_from_module(module_name: str, fallback_id: str) -> Factory:
     try:
         mod = importlib.import_module(module_name)
     except Exception as e:
-        def _err(provider: ProviderBase) -> FrameworkBase:
-            return NotReadyFramework(provider, fallback_id, reason=f"Import error: {e}")
+        # FIX: Capture the exception variable 'e' as a default argument
+        # to ensure it's available when _err is called later.
+        def _err(provider: ProviderBase, captured_e=e) -> FrameworkBase:
+            return NotReadyFramework(provider, fallback_id, reason=f"Import error: {captured_e}")
         return _err
 
     # Priority 1: get_framework(provider: ProviderBase) -> FrameworkBase
@@ -161,18 +166,16 @@ def _discover_builtin() -> Dict[str, Factory]:
 
 
 # Entry points for external frameworks
-try:  # Python 3.12 style
+try:  # Python 3.10+ style
     from importlib.metadata import entry_points as _eps  # type: ignore
 
     def _discover_entry_points() -> Dict[str, Factory]:
         out: Dict[str, Factory] = {}
         try:
-            eps = _eps().get("a2a_universal.frameworks", [])  # type: ignore[call-arg]
+            # <-- 3. DEPRECATION FIX: Use .select() instead of .get()
+            eps = _eps().select(group="a2a_universal.frameworks")
         except Exception:
-            try:
-                eps = [ep for ep in _eps(group="a2a_universal.frameworks")]  # type: ignore[call-arg]
-            except Exception:
-                eps = []
+            eps = []
 
         for ep in eps:
             fid = ep.name
@@ -233,12 +236,17 @@ def build_framework(provider: ProviderBase) -> FrameworkBase:
     Falls back to 'native' when the requested framework is unavailable.
     """
     want = (os.getenv("AGENT_FRAMEWORK", "native") or "native").lower().strip()
+    # <-- 4. LOG THE CHOICE FROM THE ENVIRONMENT VARIABLE
+    log.info(f"Attempting to load framework specified by AGENT_FRAMEWORK: '{want}'")
+
     want = _ALIASES.get(want, want)
     factory = _REGISTRY.get(want)
     if factory:
         return factory(provider)
 
     # Fallback chain
+    # <-- 5. LOG THE FALLBACK ACTION
+    log.warning(f"Framework '{want}' not found or failed to load. Falling back to 'native'.")
     if "native" in _REGISTRY:
         return _REGISTRY["native"](provider)
     return NotReadyFramework(provider, want or "unknown", reason="No frameworks discovered")
