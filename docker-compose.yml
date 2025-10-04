@@ -3,7 +3,7 @@ version: "3.9"
 services:
   a2a-agent:
     # Build locally OR switch to a published image by removing `build:` and keeping `image:`
-    image: ${IMAGE_REPO:-yourrepo/universal-a2a-agent}:${IMAGE_TAG:-1.2.0}
+    image: ${IMAGE_REPO:- ruslanmv/universal-a2a-agent}:${IMAGE_TAG:-1.2.0}
     build:
       context: .
       dockerfile: Dockerfile
