@@ -62,7 +62,7 @@ export A2A_ROOT_PATH=/agent                     # keeps OpenAPI/card URLs correc
 
 ## 1) Easiest possible agent (one function → full A2A)
 
-### `examples/simple_agent.py`  ✅
+### `examples/simple_agent.py`  
 
 ```python
 # examples/simple_agent.py
@@ -90,15 +90,26 @@ Run it:
 python examples/simple_agent.py
 ```
 
+![](assets/2025-10-09-16-56-47.png)
+
+
+
 Test it:
 
 ```bash
 # health
 curl -s http://localhost:8080/healthz
+```
 
+{"status":"ok"}
+
+```bash
 # discovery
 curl -s http://localhost:8080/.well-known/agent-card.json | jq
+```
+![](assets/2025-10-09-16-59-49.png)
 
+```bash
 # raw A2A
 curl -s http://localhost:8080/a2a \
   -H 'Content-Type: application/json' \
@@ -109,19 +120,33 @@ curl -s http://localhost:8080/a2a \
           "parts":[{"type":"text","text":"Ping from A2A"}]
         }}
       }' | jq
-
+```
+![](assets/2025-10-09-17-00-25.png)
+```bash
 # OpenAI-compatible
 curl -s http://localhost:8080/openai/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"tiny-agent","messages":[{"role":"user","content":"What is A2A?"}]}' \
   | jq -r '.choices[0].message.content'
+```
+![](assets/2025-10-09-17-01-01.png)
 
+```bash
 # JSON-RPC
 curl -s http://localhost:8080/rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"role":"user","messageId":"cli","parts":[{"type":"text","text":"Hello via JSON-RPC"}]}}}' \
   | jq
 ```
+![](assets/2025-10-09-17-01-33.png)
+
+
+
+In our server we have different calls made by you
+
+
+![](assets/2025-10-09-17-02-54.png)
+
 
 ---
 
@@ -129,7 +154,7 @@ curl -s http://localhost:8080/rpc \
 
 The `mount(...)` function now supports **function mode** too — pass a `handler=` and it builds an A2A app for you. Use this if you like the shorter import.
 
-### `examples/tiny_agent.py`  ✅
+### `examples/tiny_agent.py`  
 
 ```python
 # examples/tiny_agent.py
@@ -148,13 +173,57 @@ if __name__ == "__main__":
 
 > Under the hood, `mount(handler=...)` delegates to the same builder used in §1.
 
+You can test our a2a agent by installing a simple webapp a2a validator here
+(https://github.com/agent-matrix/a2a-validator)[https://github.com/agent-matrix/a2a-validator]
+
+For example, 
+Pull
+```bash
+docker pull docker.io/ruslanmv/a2a-validator
+```
+Run (maps host 7860 → container 7860)
+```bash
+docker run --rm -p 7860:7860 docker.io/ruslanmv/a2a-validator
+```
+and insert our server a2a
+
+![](assets/2025-10-09-17-08-18.png)
+and also we can chat with out agent a2a
+
+![](assets/2025-10-09-17-08-30.png)
+
+
 ---
 
 ## 3) One-file LangGraph → A2A (Debugger Agent)
 
 This wraps a tiny LangGraph that explains errors and suggests fixes. It uses the **active provider** (`LLM_PROVIDER`) via `langgraph_llm()`.
 
-### `examples/debugger_agent_server.py`  ✅
+
+First assure that you have your .env file in the path where you have the python code,
+
+
+.env
+
+```bash
+# Provider and Framework Selection
+LLM_PROVIDER=watsonx
+AGENT_FRAMEWORK=langgraph
+
+# IBM watsonx.ai Credentials
+WATSONX_API_KEY=
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+WATSONX_PROJECT_ID=
+MODEL_ID=ibm/granite-3-3-8b-instruct # Optional: specify a different model
+```
+then you type
+
+```bash
+python examples/debugger_agent_server.p
+```
+
+
+### `examples/debugger_agent_server.py`  
 
 ```python
 # examples/debugger_agent_server.py
@@ -202,42 +271,62 @@ app = mount(
 if __name__ == "__main__":
     run("__main__:app", host="0.0.0.0", port=int(os.getenv("PORT", "8080")), reload=False)
 ```
+You will have something like 
+
+![](assets/2025-10-09-17-22-41.png)
+
+You can try with this error , copy and paste in the validator
+
+```
+Error: TypeError: unsupported operand type(s) for +: int and str\n\nCode:\nprint(5 + \"hello\")
+```
+
+![](assets/2025-10-09-17-25-44.png)
 
 Try:
 
 ```bash
-curl -s http://localhost:8080/a2a \
+curl -s http://localhost:8080/rpc \
   -H 'Content-Type: application/json' \
   -d '{
-        "method":"message/send",
-        "params":{"message":{
-          "role":"user","messageId":"m1",
-          "parts":[{"type":"text","text":"Error: TypeError: unsupported operand type(s) for +: int and str\n\nCode:\nprint(5 + \"hello\")"}]
-        }}
-      }' | jq -r '.message.parts[0].text'
-```
+    "jsonrpc":"2.0",
+    "id":"1",
+    "method":"message/send",
+    "params":{
+      "message":{
+        "role":"user",
+        "parts":[{"type":"text","text":"Error: TypeError: unsupported operand type(s) for +: int and str\n\nCode:\nprint(5 + \"hello\")"}]
+      }
+    }
+  }' | jq -r '.result.parts[0].text'
 
+```
+![](assets/2025-10-09-17-26-52.png)
 ---
 
 ## 4) Multi-agent LangGraph with routing (e.g., Watsonx)
 
 Two skills in one service: **Debugger** and **Docs**. We route by message content.
 
-### `examples/multi_agent_server.py`  ✅
+### `examples/multi_agent_server.py`  
 
 ```python
 # examples/multi_agent_server.py
 from __future__ import annotations
 import os, re
 from typing import Dict, Any
-
+from dotenv import load_dotenv
+# -------------------------------------------------------------------
+# Load environment variables
+# -------------------------------------------------------------------
+load_dotenv()
 from langgraph.graph import StateGraph, END, MessagesState
 from langchain_core.messages import HumanMessage, AIMessage
 
 from a2a_universal import mount, run
 from a2a_universal.provider_api import langgraph_llm
 
-llm = langgraph_llm()  # watsonx/openai/echo... via env
+llm = langgraph_llm()  # uses watsonx/openai/etc. from env
 
 async def debugger_node(state: Dict[str, Any]) -> Dict[str, Any]:
     text = state["messages"][-1].content
@@ -284,65 +373,224 @@ app = mount(
 )
 
 if __name__ == "__main__":
-    run("__main__:app", host="0.0.0.0", port=int(os.getenv("PORT", "8080")), reload=False)
+    # For watsonx:
+    # export LLM_PROVIDER=watsonx
+    # export WATSONX_API_KEY=... WATSONX_URL=... WATSONX_PROJECT_ID=... MODEL_ID=...
+    run("__main__:app", host="0.0.0.0", port=int(os.getenv("PORT", "8080")), reload=True)
+
+```
+![](assets/2025-10-09-17-31-33.png)
+
+
+You can try agan use the following query. So use:
+
+### Call via JSON-RPC (recommended, matches the agent card `url`)
+
+```bash
+curl -s http://localhost:8080/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":"1",
+    "method":"message/send",
+    "params":{
+      "message":{
+        "role":"user",
+        "parts":[{"type":"text","text":"Error: TypeError: unsupported operand type(s) for +: int and str\n\nCode:\nprint(5 + \"hello\")"}]
+      }
+    }
+  }' | jq -r '.result.parts[0].text'
+```
+
+### Or via the raw A2A envelope
+
+```bash
+curl -s http://localhost:8080/a2a \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "method":"message/send",
+    "params":{
+      "message":{
+        "role":"user",
+        "parts":[{"type":"text","text":"Error: TypeError: unsupported operand type(s) for +: int and str\n\nCode:\nprint(5 + \"hello\")"}]
+      }
+    }
+  }' | jq -r '.result.parts[0].text'
+```
+
+> If your server returns the “Task + Message” envelope (i.e. `{"result":{"Task":{...},"Message":{...}}}`), then use:
+>
+> ```bash
+> ... | jq -r '.result.Message.parts[0].text'
+> ```
+
+Also note: `GET /rpc` is just an informative ping now; **the real call must be a POST**.
+
+
+
+```txt
+Greetings! I am Universal A2A Agent, your dedicated Python debugging assistant. I'm here to help you resolve the error in your code.
+
+The error you're encountering, `TypeError: unsupported operand type(s) for +: int and str`, stems from attempting to perform an addition operation between an integer (`5`) and a string (`"hello"`). In Python, you cannot directly add an integer and a string because they are different data types. The `+` operator, when used with these types, expects both operands to be of the same type or for one to be convertible to the other. In this case, it fails because an integer and a string are incompatible.
+
+To resolve this issue, you need to ensure that both operands are of the same type before using the `+` operator for addition. Here are a few ways to correct your code:
+
+1. Convert the integer to a string and concatenate:
+
+```python
+print(str(5) + "hello")
+```
+
+2. Convert the string to an integer (if applicable) and add numerically:
+
+```python
+# This will work only if "hello" can be converted to an integer, which it can't in this case.
+# If "hello" were a string representation of an integer, like "5", you could do:
+# print(5 + int("5"))
+```
+
+3. Use string formatting or f-strings if you want to include variables in a string:
+
+```python
+print(f"The value is: {5}")
+```
+
+or
+
+```python
+print("The value is: %d" % 5)
+```
+
+Each of these methods ensures that both operands are of the same type, thus avoiding the `TypeError`. Choose the method that best fits your intended output.
+```
+
+
+---
+
+got it — here’s the same section, but written like a clear walkthrough instead of a bulleted manual.
+
+# How (and when) to talk to your A2A agent
+
+You’ve got an agent running and you want to interact with it. There are three doors you can walk through, and which one you pick depends on what you’re doing. If you’re building something “for real,” use JSON-RPC at `/rpc`. If you’re just poking it from a shell, the raw A2A endpoint is a nice shortcut. And if you already have code that speaks the OpenAI chat API, the compatibility endpoint will drop right in.
+
+When in doubt, follow the Agent Card — its `url` points to the right place (usually `/rpc`). A plain `GET /rpc` only shows a friendly note; real requests must be `POST`.
+
+---
+
+## Health and discovery
+
+First make sure the server is up and ready, then grab the Agent Card so your client knows what the agent supports.
+
+```bash
+# liveness
+curl -s http://localhost:8080/healthz
+
+# readiness (framework/provider status)
+curl -s http://localhost:8080/readyz | jq
+
+# agent card (capabilities, transport, URL)
+curl -s http://localhost:8080/.well-known/agent-card.json | jq
 ```
 
 ---
 
-## How to call your agent (all examples)
+## JSON-RPC (use this by default)
+
+This is the clean, standard path: stable request IDs, predictable error envelopes, and it matches the URL advertised by the Agent Card. Great for production code, the A2A Inspector, and any tooling that wants strong contracts.
 
 ```bash
-# Quick health
-curl -s http://localhost:8080/healthz
-curl -s http://localhost:8080/readyz | jq
+curl -s http://localhost:8080/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "jsonrpc":"2.0",
+        "id":"1",
+        "method":"message/send",
+        "params":{
+          "message":{
+            "role":"user",
+            "parts":[{"type":"text","text":"Explain JSON-RPC briefly"}]
+          }
+        }
+      }' | jq -r '.result.parts[0].text'
+```
 
-# Discovery card
-curl -s http://localhost:8080/.well-known/agent-card.json | jq
+Some servers return a “Task + Message” envelope. If you see that, extract the final reply like this:
 
-# A2A (raw)
+```bash
+... | jq -r '.result.Message.parts[0].text'
+```
+
+---
+
+## Raw A2A (simple shell tests)
+
+Same semantics without the JSON-RPC wrapper — perfect for quick `curl` testing or minimal scripts. You still send a `message` with `parts`, and the reply comes back under `.result`.
+
+```bash
 curl -s http://localhost:8080/a2a \
   -H 'Content-Type: application/json' \
   -d '{
         "method":"message/send",
-        "params":{"message":{
-          "role":"user","messageId":"m1",
-          "parts":[{"type":"text","text":"What is A2A?"}]
-        }}
-      }' | jq
+        "params":{
+          "message":{
+            "role":"user",
+            "parts":[{"type":"text","text":"What is A2A?"}]
+          }
+        }
+      }' | jq -r '.result.parts[0].text'
+```
 
-# JSON-RPC
-curl -s http://localhost:8080/rpc \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "jsonrpc":"2.0","id":"1","method":"message/send",
-        "params":{"message":{
-          "role":"user","messageId":"cli",
-          "parts":[{"type":"text","text":"Explain JSON-RPC briefly"}]
-        }}
-      }' | jq
+Again, if your server wraps in Task+Message, use:
 
-# OpenAI-compatible
-curl -s http://localhost:8080/openai/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"universal-a2a","messages":[{"role":"user","content":"Hi!"}]}' \
-  | jq -r '.choices[0].message.content'
+```bash
+... | jq -r '.result.Message.parts[0].text'
 ```
 
 ---
 
-## What to use when (cheat-sheet)
+## OpenAI-compatible (drop-in for existing clients)
 
-* **`from a2a_universal.app import build`**
+If you already have code built for the OpenAI chat completions API, point it here. It’s convenient, but you won’t get A2A’s richer event model — it’s plain request/response chat.
+
+```bash
+curl -s http://localhost:8080/openai/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "model":"universal-a2a",
+        "messages":[{"role":"user","content":"Hi!"}]
+      }' | jq -r '.choices[0].message.content'
+```
+
+---
+
+## Why A2A is nice to live with
+
+The Agent Card lets clients auto-discover how to talk to the agent — no hardcoded assumptions. Messages can carry typed parts (text, files, data) with MIME types, so you can do more than just plain strings. And when you want richer UX, A2A supports task/status/artifact events and streaming, which means you can build experiences that feel alive instead of just returning a blob at the end. On top of that, JSON-RPC gives you predictable errors and request IDs, which makes production debugging much less painful.
+
+---
+
+## What to use when (cheat-sheet)
+| Task                                      | Import                                | When to use                                         | What it does                                                                                                                 |
+| ----------------------------------------- | ------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Build a full agent from a single function | `from a2a_universal.app import build` | You only have `handler(text) -> str/awaitable[str]` | Returns a complete FastAPI app: A2A, JSON-RPC, OpenAI, health, Agent Card.                                                   |
+| Add Universal A2A to an existing app      | `from a2a_universal import mount`     | You already have a FastAPI app                      | **Function mode:** `mount(handler=...)` ≈ `build` shortcut. **Attach mode:** `mount(app, prefix="/a2a")`.                    |
+| Start the server (best-practice defaults) | `from a2a_universal import run`       | You want sane composition without extra wiring      | Defaults to `mode="attach"` → your app at `/`, A2A at `/a2a`. Use `mode="primary"` to flip, or `mode="solo"` for standalone. |
+
+
+
+
+
+**`from a2a_universal.app import build`**
   You don’t have an app yet. You just have a function `handler(text)->str/awaitable[str]`.
   Returns a full FastAPI app with A2A/RPC/OpenAI/health/card.
 
-* **`from a2a_universal import mount`**
+**`from a2a_universal import mount`**
   **Two modes**:
 
   * **Function mode:** `mount(handler=...)` → same as `build`, just a shorter import.
   * **Attach mode:** `mount(existing_fastapi_app, prefix="/a2a")` → mutates your app to include Universal A2A under a prefix.
 
-* **`from a2a_universal import run`**
+**`from a2a_universal import run`**
   Starts Uvicorn and **composes** apps:
 
   * `mode="attach"` (default): your app at `/`, A2A at `/a2a`.
@@ -356,9 +604,18 @@ curl -s http://localhost:8080/openai/v1/chat/completions \
 
 ## Provider & framework defaults
 
-* If you set nothing: `LLM_PROVIDER=echo` and `AGENT_FRAMEWORK=native` behave sensibly (echo text back).
-* Flip providers by env only (no code changes): `watsonx`, `openai`, `ollama`, `anthropic`, `gemini`, `azure`, `bedrock`, `echo`.
-* Frameworks (orchestration): `native`, `langgraph`, `crewai`, `langchain`, plus your own plugins.
+
+| Setting                   | Default   | Options (env only, no code changes)                                              | Notes                                                     |
+| ------------------------- | --------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| LLM provider              | `echo`    | `watsonx`, `openai`, `ollama`, `anthropic`, `gemini`, `azure`, `bedrock`, `echo` | Start with `echo` to verify wiring end-to-end.            |
+| Framework (orchestration) | `native`  | `langgraph`, `crewai`, `langchain`, custom plugins                               | Swap orchestration without touching routes.               |
+| Readiness insight         | `/readyz` | —                                                                                | Explains why something isn’t ready (e.g., missing creds). |
+
+
+
+If you set nothing: `LLM_PROVIDER=echo` and `AGENT_FRAMEWORK=native` behave sensibly (echo text back).
+Flip providers by env only (no code changes): `watsonx`, `openai`, `ollama`, `anthropic`, `gemini`, `azure`, `bedrock`, `echo`.
+Frameworks (orchestration): `native`, `langgraph`, `crewai`, `langchain`, plus your own plugins.
 
 `/readyz` shows **why** something isn’t ready (e.g., missing creds).
 
