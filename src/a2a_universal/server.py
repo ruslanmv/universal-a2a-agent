@@ -10,13 +10,14 @@ and production-ready security middleware.
 
 from __future__ import annotations
 
+import os  # <-- Added: for A2A_ROOT_PATH support
 import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
 import structlog
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response  # <-- Added Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.cors import CORSMiddleware
@@ -80,10 +81,12 @@ async def lifespan(app: FastAPI):
 
 
 # Initialize the FastAPI application.
+# Added: root_path honors a deployment prefix when running behind a proxy/gateway.
 app = FastAPI(
     title=settings.AGENT_NAME or "Universal A2A Agent",
     version=settings.AGENT_VERSION or "0.1.0",
     lifespan=lifespan,
+    root_path=os.getenv("A2A_ROOT_PATH", ""),  # <--- NEW
     # In a secure production environment, you might disable the docs:
     # docs_url=None,
     # redoc_url=None,
@@ -192,6 +195,12 @@ class ChatRequest(BaseModel):
 async def root_redirect() -> RedirectResponse:
     """Redirects the root path to the API documentation for convenience."""
     return RedirectResponse(url="/docs", status_code=307)
+
+
+# NEW: convenience alias (kept out of schema) for platforms probing /health
+@app.get("/health", include_in_schema=False)
+async def health_alias() -> Dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.get("/healthz", tags=["Monitoring"])
@@ -354,6 +363,51 @@ async def jsonrpc_endpoint(req: Request) -> JSONResponse:
     )
 
 
+# --- Minor patch: friendly GET/HEAD/OPTIONS for /rpc to avoid 405 noise -------
+
+@app.get("/rpc", include_in_schema=False)
+async def rpc_info(req: Request) -> JSONResponse:
+    """
+    Informational endpoint for browsers/health probes that hit GET /rpc.
+    Real JSON-RPC calls must use POST /rpc with a JSON body.
+    """
+    request_id = _get_request_id(req)
+    try:
+        post_url = str(req.url_for("jsonrpc_endpoint"))
+    except Exception:
+        post_url = "/rpc"
+    return JSONResponse(
+        {
+            "status": "ok",
+            "message": (
+                "This is a JSON-RPC 2.0 endpoint. "
+                "Use POST with body: "
+                '{"jsonrpc":"2.0","method":"message/send","params":{...},"id":"..."}'
+            ),
+            "post_url": post_url,
+            "methods": ["POST"],
+        },
+        headers={**_get_diag_headers(request_id), "Allow": "POST, OPTIONS"},
+    )
+
+
+@app.head("/rpc", include_in_schema=False)
+async def rpc_head() -> Response:
+    """Fast path for load-balancer/monitor checks that send HEAD to /rpc."""
+    return Response(status_code=204, headers={"Allow": "POST, OPTIONS"})
+
+
+@app.options("/rpc", include_in_schema=False)
+async def rpc_options() -> Response:
+    """Explicit OPTIONS (CORS middleware usually covers this)."""
+    return Response(status_code=204, headers={"Allow": "POST, OPTIONS"})
+
+
+# =============================================================================
+# OPENAI-COMPATIBLE ENDPOINT
+# =============================================================================
+
+
 @app.post("/openai/v1/chat/completions", tags=["OpenAI"])
 async def openai_chat_completions(req: Request) -> JSONResponse:
     """Provides an OpenAI-compatible endpoint for chat completions."""
@@ -441,4 +495,3 @@ if __name__ == "__main__":
         log_level="info",
         reload=True,
     )
-
