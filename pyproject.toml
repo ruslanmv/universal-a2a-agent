@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-a2a-agent"
-version = "0.1.2.dev2"
+version = "0.1.2"
 description = "Framework-agnostic A2A agent with pluggable Providers & Frameworks (MCP, LangChain, LangGraph, CrewAI, BeeAI, AutoGen, watsonx.ai)"
 readme = "README.md"
 authors = [{ name = "Ruslan Magana Vsevolodovna", email = "contact@ruslanmv.com" }]
