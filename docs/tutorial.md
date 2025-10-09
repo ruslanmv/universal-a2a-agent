@@ -404,8 +404,13 @@ You can now:
 * Wrap existing **LangGraph** logic and expose it via A2A, JSON-RPC, or OpenAI-compatible routes.
 * Ship a **multi-agent** service with simple routing — and swap providers/frameworks by environment only.
 
-If you want a Dockerfile, Makefile, or a template repo next, say the word and I’ll drop one in.
 
+
+# Part 2 — Compose the Universal A2A server with **your** app (attach / primary / solo)
+
+This part is all about **wiring**: how to run your own FastAPI/Starlette app **together** with the Universal A2A server — without refactors. We’ll also clarify what “**attach**” really means (it’s now the **default**), what endpoints you get, and how to test them.
+
+---
 
 # Part 2 — Compose the Universal A2A server with **your** app (attach / primary / solo)
 
@@ -650,7 +655,7 @@ This keeps OpenAPI and agent-card URLs coherent behind a prefix.
 ## Friendly `/rpc` and input normalization
 
 * `GET /rpc` returns a small JSON telling you to use `POST` (with `Allow: POST, OPTIONS`) — no more noisy 405s from health probes.
-* Requests to `/a2a` and `/rpc` are **normalized** so parts like `{"text":"..."}` or `{"kind":"text","text":"..."}` become canonical `{"type":"text","text":"..."}` before they reach your agent.
+* Requests to `/a2a` and `/rpc` are **normalized** so parts like `{\"text\":\"...\"}` or `{\"kind\":\"text\",\"text\":\"...\"}` become canonical `{\"type\":\"text\",\"text\":\"...\"}` before they reach your agent.
 
 ---
 
@@ -707,12 +712,87 @@ curl -s http://localhost:8080/a2a/openai/v1/chat/completions \
 
 That’s it — your app is now **A2A-enabled** with a stable, provider-agnostic surface. Flip models or frameworks with env-only changes, and keep integrating via `/a2a`, `/rpc`, or `/openai` without breaking clients.
 
+---
+
+# Inject a custom A2A surface when composing or running
+
+You can now inject a custom A2A surface when composing or running — **without modifying your app** and **without replacing the package defaults for everyone else**.
+
+## What’s new
+
+* `a2a_universal.run(...)` and `a2a_universal.compose(...)` now accept:
+
+  * `handler: Callable[[str], str | Awaitable[str]]` — build a full A2A app on the fly from your function
+  * `a2a_app: ASGIApp` — plug a prebuilt A2A FastAPI app
+  * Optional `name`, `description`, `version` metadata when building from a `handler`
+* Fully **backwards‑compatible**: if you pass neither, the packaged Universal A2A app is used (as before).
+
+## Examples
+
+### A) Make A2A **primary** with your handler at `/` (your app under `/app`)
+
+```python
+from fastapi import FastAPI
+import a2a_universal as a2a
+
+app = FastAPI()
+
+@app.get("/hello")
+def hello():
+    return {"hi": "from my app under /app"}
+
+async def handle_text(text: str) -> str:
+    return f"Hello from my custom agent. You said: {text}"
+
+if __name__ == "__main__":
+    a2a.run(
+        "__main__:app",
+        mode="primary",            # A2A at '/', your app at /app
+        user_prefix="/app",
+        host="0.0.0.0", port=8080,
+        handler=handle_text,        # ← NEW
+        name="Tiny Agent",
+        description="One function → full A2A",
+    )
+```
+
+### B) Keep your app at `/`, mount your handler‑powered A2A under `/a2a`
+
+```python
+# Your existing FastAPI app stays at '/'
+a2a.run(
+    "__main__:app",
+    mode="attach", a2a_prefix="/a2a",
+    host="0.0.0.0", port=8080,
+    handler=handle_text,          # ← NEW
+    name="Tiny Agent",
+    description="One function → full A2A",
+)
+```
+
+### C) Already built an A2A app? Plug it in directly
+
+```python
+from a2a_universal.app import build
+
+async def handle_text(text: str) -> str:
+    return f"Hello from my custom agent. You said: {text}"
+
+my_a2a = build(handler=handle_text, name="Tiny Agent")
+a2a.run("__main__:app", mode="attach", a2a_app=my_a2a, host="0.0.0.0", port=8080)
+```
+
+## Notes
+
+* The runner still provides the friendly **`GET/HEAD/OPTIONS /rpc`** and **input normalization** shim.
+* `reload`: the import‑string fast path is used in **solo** only when you don’t inject a custom A2A; otherwise the runner composes an app object and may disable reload (with a friendly warning).
+* Everything else (health, readiness, OpenAI‑compat, agent card) works exactly as before.
 
 # Part 3 — **Build vs. Mount/Run** (and what “attach / primary / solo” really mean)
 
 You now have two equally simple ways to turn “some Python code” into a production A2A agent:
 
-* **`build()`** – give us a single function `handler(text)->str` and we give you a full FastAPI A2A app.
+* **`build()`** – give us a single function `handler(text) -> str` and we give you a full FastAPI A2A app.
 * **`run()` / `mount()`** – compose or mutate an **existing** FastAPI/Starlette app with the Universal A2A app.
 
 Below is the practical “which one when” guide, updated to the latest package behavior and defaults.
@@ -740,7 +820,8 @@ app = build(
 )
 
 if __name__ == "__main__":
-    run("__main__:app", host="0.0.0.0", port=8080, reload=True)
+    # Tip: for a pure A2A app, prefer solo mode (clean reload with import string)
+    run("__main__:app", mode="solo", host="0.0.0.0", port=8080, reload=True)
 ```
 
 **What you get out of the box**
@@ -903,7 +984,7 @@ async def handle_text(text: str) -> str:
 app = mount(handler=handle_text, name="Tiny Agent", description="One function → full A2A")
 
 if __name__ == "__main__":
-    run("__main__:app", host="0.0.0.0", port=8080, reload=True)
+    run("__main__:app", mode="solo", host="0.0.0.0", port=8080, reload=True)
 ```
 
 If you like explicitness, prefer `from a2a_universal.app import build`. If you want brevity, `mount(handler=...)` is fine.
@@ -932,11 +1013,11 @@ The runner wraps apps with a small ASGI shim that:
 
 * Returns a helpful JSON for **`GET /rpc`** (so you don’t see noisy 405s).
 * Answers `HEAD/OPTIONS /rpc` with `Allow: POST, OPTIONS`.
-* **Normalizes incoming A2A parts** so any of these become canonical `{"type":"text","text":"..."}`:
+* **Normalizes incoming A2A parts** so any of these become canonical `{ "type": "text", "text": "..." }`:
 
-  * `{"text":"Hello"}`
-  * `{"kind":"text","text":"Hello"}`
-  * `{"type":"text","text":"Hello"}` (already canonical)
+  * `{ "text": "Hello" }`
+  * `{ "kind": "text", "text": "Hello" }`
+  * `{ "type": "text", "text": "Hello" }` (already canonical)
 
 This ensures your agent **always** receives the user text, regardless of client quirks.
 
@@ -963,3 +1044,4 @@ This ensures your agent **always** receives the user text, regardless of client 
 * Check health/readiness: `/healthz`, `/readyz` (includes provider/framework reasons).
 
 That’s it! With these patterns you can choose the **simplest** route that fits your app today and still keep the universal, stable A2A surface your integrations expect.
+

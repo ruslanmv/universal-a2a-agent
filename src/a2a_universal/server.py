@@ -476,6 +476,100 @@ async def unhandled_exception_handler(req: Request, exc: Exception) -> JSONRespo
     )
 
 
+# -----------------------  Compatibility middleware (additive)  -----------------------
+
+@app.middleware("http")
+async def _a2a_rpc_compat_normalizer(request: Request, call_next):
+    """
+    Additive compatibility shim:
+      - Normalizes POST bodies for /a2a and /rpc so parts with {"text": "..."} or {"kind":"text"}
+        are converted to {"type":"text","text":"..."} BEFORE your handlers parse the body.
+      - Augments /a2a responses by mirroring top-level {"message": <result>} for clients/tests
+        that expect 'message' instead of 'result'. Existing payload remains untouched.
+    """
+    import json as _json
+
+    path = request.url.path
+    method = (request.method or "GET").upper()
+
+    # ---- Normalize request bodies for /a2a and /rpc (input text extraction fix) ----
+    if method == "POST" and path in ("/a2a", "/rpc"):
+        try:
+            raw = await request.body()
+            data = _json.loads(raw.decode("utf-8") or "{}")
+            # Locate the 'message' envelope (A2A or JSON-RPC params)
+            msg = None
+            if isinstance(data, dict):
+                if isinstance(data.get("params"), dict) and isinstance(data["params"].get("message"), dict):
+                    msg = data["params"]["message"]
+                elif isinstance(data.get("message"), dict):
+                    msg = data["message"]
+            # Normalize parts -> ensure {"type":"text","text":"..."}
+            changed = False
+            if isinstance(msg, dict) and isinstance(msg.get("parts"), list):
+                for p in msg["parts"]:
+                    if isinstance(p, dict) and "text" in p:
+                        if p.get("type") != "text":
+                            # Convert {"kind":"text"} or bare {"text": "..."} into canonical shape
+                            if p.get("kind") == "text":
+                                p.pop("kind", None)
+                            p["type"] = "text"
+                            changed = True
+            if changed:
+                new_raw = _json.dumps(data).encode("utf-8")
+                # Rebuild the request's receive() so downstream sees normalized JSON
+                async def _receive():
+                    return {"type": "http.request", "body": new_raw, "more_body": False}
+                request = Request(request.scope, _receive)
+        except Exception:
+            # If anything goes wrong, fall back to original request
+            pass
+
+    # Call downstream handler
+    response = await call_next(request)
+
+    # ---- Augment /a2a responses with top-level 'message' (additive, keeps 'result') ----
+    if method == "POST" and path == "/a2a":
+        try:
+            # Drain the response body (it's a stream), then rebuild
+            body_bytes = b""
+            async for chunk in response.body_iterator:
+                body_bytes += chunk
+
+            import typing as _t
+            from fastapi.responses import JSONResponse as _JSONResponse
+
+            payload = {}
+            try:
+                payload = _json.loads(body_bytes.decode("utf-8") or "{}")
+            except Exception:
+                # Not JSON? Return original bytes
+                return Response(
+                    content=body_bytes,
+                    status_code=response.status_code,
+                    headers={k: v for k, v in response.headers.items() if k.lower() != "content-length"},
+                    media_type=response.media_type,
+                )
+
+            # If top-level 'message' is missing but 'result' exists, mirror it.
+            if "message" not in payload and "result" in payload:
+                payload["message"] = payload["result"]
+
+            # Rebuild JSON response, preserving headers (except content-length)
+            headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+            return _JSONResponse(
+                content=payload,
+                status_code=response.status_code,
+                headers=headers,
+            )
+        except Exception:
+            # On any failure, return the original response as-is
+            return response
+
+    return response
+# ---------------------  End Compatibility middleware (additive)  ---------------------
+
+
 # =============================================================================
 # DEVELOPMENT SERVER LAUNCHER
 # =============================================================================

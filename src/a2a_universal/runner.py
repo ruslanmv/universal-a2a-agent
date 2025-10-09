@@ -179,6 +179,12 @@ def compose(
     mode: str = "attach",
     a2a_prefix: str = "/a2a",
     user_prefix: str = "/app",
+    # NEW: optionally inject a custom A2A surface
+    handler: Optional[Callable[[str], Union[str, Awaitable[str]]]] = None,
+    a2a_app: Optional[ASGIApp] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    version: Optional[str] = None,
 ) -> ASGIApp:
     """
     Build a composite ASGI application with both Universal A2A + your app.
@@ -203,10 +209,26 @@ def compose(
     if not user_prefix.startswith("/"):
         user_prefix = "/" + user_prefix
 
-    # Solo = just the universal app
+    # Decide which A2A app to use:
+    #  - explicit a2a_app
+    #  - built from handler via app.build()
+    #  - packaged universal app (default)
+    selected_a2a = _universal_app
+    if a2a_app is not None:
+        selected_a2a = a2a_app
+    elif handler is not None:
+        from .app import build as _build  # lazy to avoid cycles
+        selected_a2a = _build(
+            handler=handler,
+            name=name or os.getenv("AGENT_NAME", "Universal A2A Agent"),
+            description=description or os.getenv("AGENT_DESCRIPTION", "A2A-compatible agent"),
+            version=version or os.getenv("AGENT_VERSION", "0.1.0"),
+        )
+
+    # Solo = just the chosen A2A app
     if mode == "solo" or user_app is None:
         # Even in solo, add the RPC shim to silence GET /rpc 405 and normalize bodies.
-        return _wrap_with_rpc_shim(_universal_app)  # type: ignore[return-value]
+        return _wrap_with_rpc_shim(selected_a2a)  # type: ignore[return-value]
 
     # Build a clean root that mounts both apps without altering either
     root = FastAPI(
@@ -217,7 +239,7 @@ def compose(
 
     # Wrap both sides with the shim
     user_app_wrapped = _wrap_with_rpc_shim(user_app)
-    a2a_app_wrapped = _wrap_with_rpc_shim(_universal_app)
+    a2a_app_wrapped = _wrap_with_rpc_shim(selected_a2a)
 
     if mode == "primary":
         # Universal A2A at '/', your app under '/app' (or custom user_prefix)
@@ -301,6 +323,12 @@ def run(
     reload: bool = False,
     log_level: str = "info",
     workers: Optional[int] = None,
+    # NEW: same injection knobs as compose()
+    handler: Optional[Callable[[str], Union[str, Awaitable[str]]]] = None,
+    a2a_app: Optional[ASGIApp] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    version: Optional[str] = None,
 ) -> None:
     """
     Start an ASGI server with Universal A2A + your app (optional).
@@ -314,12 +342,16 @@ def run(
         a2a_prefix: mount point for A2A when mode="attach" (default: /a2a)
         user_prefix: mount point for your app when mode="primary" (default: /app)
         host, port, reload, log_level, workers: forwarded to uvicorn.run()
+        handler: optional text handler -> builds a custom A2A app on the fly (via app.build)
+        a2a_app: optional pre-built A2A FastAPI app to use instead of the packaged one
+        name/description/version: metadata for the A2A app when building from handler
 
     Behavior:
         - Loads .env if available (without overriding explicit env).
-        - Uses the production Universal A2A app from the package.
+        - Uses the production Universal A2A app from the package by default.
         - When `reload=True`:
-            * Supported cleanly when mode='solo' AND you passed an import string (e.g. '__main__:app').
+            * Supported cleanly when mode='solo' AND you passed an import string (e.g. '__main__:app')
+              and you did not inject a custom A2A via handler/a2a_app.
             * For composed modes ('attach'/'primary'), Uvicorn cannot reload an in-memory composite object.
               Prefer `reload=False` or run your own uvicorn command with import strings.
     """
@@ -330,7 +362,15 @@ def run(
 
     user_app = _resolve_app(app)
     application = compose(
-        user_app, mode=mode, a2a_prefix=a2a_prefix, user_prefix=user_prefix
+        user_app,
+        mode=mode,
+        a2a_prefix=a2a_prefix,
+        user_prefix=user_prefix,
+        handler=handler,
+        a2a_app=a2a_app,
+        name=name,
+        description=description,
+        version=version,
     )
 
     try:
@@ -341,8 +381,8 @@ def run(
         ) from e
 
     # If we are in SOLO mode and caller provided import string, forward it to uvicorn
-    # so reload/workers are fully supported without warnings.
-    if mode == "solo" and isinstance(raw_app, str):
+    # so reload/workers are fully supported without warnings. Skip if a custom A2A was injected.
+    if mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app):
         uvicorn.run(
             raw_app,  # import string here!
             host=host,
@@ -354,10 +394,10 @@ def run(
         return
 
     # In composed modes, passing an object is fine; but uvicorn reload requires import strings.
-    if reload and not (mode == "solo" and isinstance(raw_app, str)):
+    if reload and not (mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app)):
         warnings.warn(
-            "reload=True is only fully supported when mode='solo' and you pass the app as an import string. "
-            "Continuing without reload support for a composed in-memory app.",
+            "reload=True is only fully supported when mode='solo' and you pass the app as an import string "
+            "(and no custom A2A was injected). Continuing without reload support for a composed in-memory app.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -366,7 +406,7 @@ def run(
         application,
         host=host,
         port=port,
-        reload=False if reload and not (mode == "solo" and isinstance(raw_app, str)) else reload,
+        reload=False if reload and not (mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app)) else reload,
         log_level=log_level,
         workers=workers,
     )
