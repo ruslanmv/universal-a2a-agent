@@ -47,12 +47,16 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+
 # --- Load .env early (best-effort, with fallback to .env.example) ---
 def _load_env(dotenv_path: Optional[str]) -> str:
     try:
         from dotenv import load_dotenv, find_dotenv
     except Exception:
-        print("ERROR: python-dotenv is required: pip install python-dotenv", file=sys.stderr)
+        print(
+            "ERROR: python-dotenv is required: pip install python-dotenv",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     loaded_from = ""
@@ -75,12 +79,14 @@ def _load_env(dotenv_path: Optional[str]) -> str:
             loaded_from = p
     return loaded_from or "(no .env file loaded; using OS env only)"
 
+
 def _env_first(*names: str, default: Optional[str] = None) -> Optional[str]:
     for n in names:
         v = os.getenv(n)
         if v:
             return v
     return default
+
 
 def _mask(s: Optional[str], keep: int = 4) -> str:
     if not s:
@@ -89,9 +95,11 @@ def _mask(s: Optional[str], keep: int = 4) -> str:
         return "*" * len(s)
     return s[:keep] + "*" * (len(s) - keep)
 
+
 def _die(code: int, msg: str):
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
+
 
 def _cosine(a, b) -> float:
     num = sum(x * y for x, y in zip(a, b))
@@ -99,24 +107,48 @@ def _cosine(a, b) -> float:
     nb = math.sqrt(sum(y * y for y in b))
     return num / (na * nb + 1e-12)
 
+
 def main():
-    ap = argparse.ArgumentParser(description="watsonx.ai embeddings env + connectivity checker")
+    ap = argparse.ArgumentParser(
+        description="watsonx.ai embeddings env + connectivity checker"
+    )
     ap.add_argument("--dotenv", default=None, help="Path to .env (optional)")
-    ap.add_argument("--model", default=os.getenv("A2A_EMBEDDINGS_MODEL", "ibm/slate-125m-english-rtrvr"),
-                    help="Embedding model id (default: ibm/slate-125m-english-rtrvr)")
-    ap.add_argument("--query", default="What did the president say about Ketanji Brown Jackson",
-                    help="Sample query text for embed_query()")
-    ap.add_argument("--with-chroma", action="store_true",
-                    help="Also run a mini Chroma roundtrip (index/query) with embeddings")
+    ap.add_argument(
+        "--model",
+        default=os.getenv("A2A_EMBEDDINGS_MODEL", "ibm/slate-125m-english-rtrvr"),
+        help="Embedding model id (default: ibm/slate-125m-english-rtrvr)",
+    )
+    ap.add_argument(
+        "--query",
+        default="What did the president say about Ketanji Brown Jackson",
+        help="Sample query text for embed_query()",
+    )
+    ap.add_argument(
+        "--with-chroma",
+        action="store_true",
+        help="Also run a mini Chroma roundtrip (index/query) with embeddings",
+    )
     args = ap.parse_args()
 
     loaded_from = _load_env(args.dotenv)
     print(f"Loaded environment from: {loaded_from}")
 
     # --- Collect credentials (accept multiple common aliases) ---
-    url = _env_first("EMBEDDINGS_WATSONX_URL", "WATSONX_URL", "IBM_WATSONX_URL", default="https://us-south.ml.cloud.ibm.com")
-    apikey = _env_first("EMBEDDINGS_WATSONX_API_KEY", "WATSONX_API_KEY", "IBM_CLOUD_API_KEY")
-    project_id = _env_first("EMBEDDINGS_WATSONX_PROJECT_ID", "WATSONX_PROJECT_ID", "PROJECT_ID", "IBM_CLOUD_PROJECT_ID")
+    url = _env_first(
+        "EMBEDDINGS_WATSONX_URL",
+        "WATSONX_URL",
+        "IBM_WATSONX_URL",
+        default="https://us-south.ml.cloud.ibm.com",
+    )
+    apikey = _env_first(
+        "EMBEDDINGS_WATSONX_API_KEY", "WATSONX_API_KEY", "IBM_CLOUD_API_KEY"
+    )
+    project_id = _env_first(
+        "EMBEDDINGS_WATSONX_PROJECT_ID",
+        "WATSONX_PROJECT_ID",
+        "PROJECT_ID",
+        "IBM_CLOUD_PROJECT_ID",
+    )
 
     print("watsonx config:")
     print(f"  url        : {url}")
@@ -125,13 +157,19 @@ def main():
     print(f"  model_id   : {args.model}")
 
     if not apikey or not project_id:
-        _die(3, "Missing required credentials. Ensure API key and PROJECT ID are set in env. See header for accepted variable names.")
+        _die(
+            3,
+            "Missing required credentials. Ensure API key and PROJECT ID are set in env. See header for accepted variable names.",
+        )
 
     # --- Import dependencies ---
     try:
         from langchain_ibm import WatsonxEmbeddings
     except Exception as e:
-        _die(2, f"Missing or incompatible 'langchain_ibm' package: {e}\nInstall with: pip install langchain-ibm")
+        _die(
+            2,
+            f"Missing or incompatible 'langchain_ibm' package: {e}\nInstall with: pip install langchain-ibm",
+        )
 
     # Optional Chroma import (only if --with-chroma)
     if args.with_chroma:
@@ -139,7 +177,10 @@ def main():
             import chromadb  # noqa: F401
             from chromadb import PersistentClient
         except Exception as e:
-            _die(2, f"Chroma requested but not installed/usable: {e}\nInstall with: pip install 'chromadb==0.3.26'")
+            _die(
+                2,
+                f"Chroma requested but not installed/usable: {e}\nInstall with: pip install 'chromadb==0.3.26'",
+            )
 
     # --- Initialize embeddings client ---
     print("\nCreating WatsonxEmbeddings client...")
@@ -211,12 +252,14 @@ def main():
             try:
                 # best-effort cleanup
                 import shutil
+
                 shutil.rmtree(tmpdir, ignore_errors=True)
             except Exception:
                 pass
 
     print("\nAll checks passed ✅")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

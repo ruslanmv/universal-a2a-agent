@@ -66,6 +66,7 @@ _RAG_CACHE: Dict[str, RagTool] = {}
 
 # ---------- helpers ----------
 
+
 def _env_list(name: str, default_csv: str) -> List[str]:
     return [x.strip() for x in os.getenv(name, default_csv).split(",") if x.strip()]
 
@@ -141,7 +142,10 @@ def _call_query_like(fn, question: str, k: int, score: float):
 
     for args, kwargs in candidates:
         try:
-            log.debug("RAG query dispatch try", extra={"args": list(args), "kwargs": _redact(kwargs)})
+            log.debug(
+                "RAG query dispatch try",
+                extra={"args": list(args), "kwargs": _redact(kwargs)},
+            )
             res = fn(*args, **kwargs)
             if isinstance(res, list) and len(res) > 0:
                 return res
@@ -233,6 +237,7 @@ def _normalize_results(raw: Any) -> List[Dict[str, Any]]:
 
 # ---------- low-dependency chunking (fallback path) ----------
 
+
 def _read_text_file(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8", errors="ignore")
@@ -253,13 +258,14 @@ def _chunk_text(txt: str, chunk_size: int, chunk_overlap: int) -> List[str]:
     safe_overlap = max(0, min(chunk_overlap, max(0, chunk_size - 1)))
     step = max(1, chunk_size - safe_overlap)
     while i < n:
-        chunks.append(txt[i: i + chunk_size])
+        chunks.append(txt[i : i + chunk_size])
         i += step
     return chunks or [""]
 
 
 def _hash_id(s: str) -> str:
     import hashlib as _hashlib
+
     return _hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
 
 
@@ -286,6 +292,7 @@ def _char_limit_for_model() -> int:
 
 # ---------- helpers bound to a specific RagTool ----------
 
+
 def _get_collection_from_rag(rag: RagTool) -> str:
     """Read effective collection name from rag.config; fall back to defaults."""
     try:
@@ -301,6 +308,7 @@ def _get_collection_from_rag(rag: RagTool) -> str:
 
 # ---------- Chroma + Watsonx fallback helpers ----------
 
+
 def _effective_root() -> Path:
     return Path(os.getenv("A2A_KNOWLEDGE_DIR", "./.a2a_knowledge")).resolve()
 
@@ -311,13 +319,15 @@ def _vdb_conf(collection_name: Optional[str] = None) -> Tuple[str, Dict[str, Any
     if vdb == "chromadb":
         root = _effective_root()
         conf = {
-            "collection_name": collection_name or os.getenv("A2A_CHROMA_COLLECTION", "a2a-knowledge"),
+            "collection_name": collection_name
+            or os.getenv("A2A_CHROMA_COLLECTION", "a2a-knowledge"),
             "path": str(root),
             "persist_directory": str(root),
         }
     elif vdb == "qdrant":
         conf = {
-            "collection_name": collection_name or os.getenv("A2A_QDRANT_COLLECTION", "a2a-knowledge"),
+            "collection_name": collection_name
+            or os.getenv("A2A_QDRANT_COLLECTION", "a2a-knowledge"),
             "url": os.getenv("A2A_QDRANT_URL", "http://localhost:6333"),
         }
     return vdb, conf
@@ -332,19 +342,34 @@ def _build_watsonx_embeddings():
         return None
 
     model_id = os.getenv("A2A_EMBEDDINGS_MODEL", "ibm/slate-125m-english-rtrvr")
-    url = _env_first("EMBEDDINGS_WATSONX_URL", "WATSONX_URL", default="https://us-south.ml.cloud.ibm.com")
-    apikey = _env_first("EMBEDDINGS_WATSONX_API_KEY", "WATSONX_API_KEY", "IBM_CLOUD_API_KEY")
-    project_id = _env_first("EMBEDDINGS_WATSONX_PROJECT_ID", "WATSONX_PROJECT_ID", "PROJECT_ID", "IBM_CLOUD_PROJECT_ID")
+    url = _env_first(
+        "EMBEDDINGS_WATSONX_URL",
+        "WATSONX_URL",
+        default="https://us-south.ml.cloud.ibm.com",
+    )
+    apikey = _env_first(
+        "EMBEDDINGS_WATSONX_API_KEY", "WATSONX_API_KEY", "IBM_CLOUD_API_KEY"
+    )
+    project_id = _env_first(
+        "EMBEDDINGS_WATSONX_PROJECT_ID",
+        "WATSONX_PROJECT_ID",
+        "PROJECT_ID",
+        "IBM_CLOUD_PROJECT_ID",
+    )
 
     if not (apikey and project_id):
         log.warning("Fallback disabled: watsonx credentials not set")
         return None
 
     try:
-        emb = WatsonxEmbeddings(model_id=model_id, url=url, apikey=apikey, project_id=project_id)
+        emb = WatsonxEmbeddings(
+            model_id=model_id, url=url, apikey=apikey, project_id=project_id
+        )
         return emb
     except Exception as e:
-        log.warning("Fallback disabled: cannot init WatsonxEmbeddings", extra={"error": str(e)})
+        log.warning(
+            "Fallback disabled: cannot init WatsonxEmbeddings", extra={"error": str(e)}
+        )
         return None
 
 
@@ -353,7 +378,9 @@ def _get_chroma_collection(collection_name: str, path: str):
     try:
         import chromadb  # type: ignore
     except Exception as e:
-        log.warning("Fallback disabled: chromadb not installed", extra={"error": str(e)})
+        log.warning(
+            "Fallback disabled: chromadb not installed", extra={"error": str(e)}
+        )
         return None, None
     try:
         client = chromadb.PersistentClient(path=path)
@@ -361,10 +388,14 @@ def _get_chroma_collection(collection_name: str, path: str):
             coll = client.get_collection(collection_name)
         except Exception:
             # Create if missing; set cosine space
-            coll = client.create_collection(collection_name, metadata={"hnsw:space": "cosine"})
+            coll = client.create_collection(
+                collection_name, metadata={"hnsw:space": "cosine"}
+            )
         return client, coll
     except Exception as e:
-        log.warning("Fallback disabled: cannot open chroma collection", extra={"error": str(e)})
+        log.warning(
+            "Fallback disabled: cannot open chroma collection", extra={"error": str(e)}
+        )
         return None, None
 
 
@@ -382,7 +413,9 @@ def _manual_ingest_with_watsonx(
     """
     vdb, conf = _vdb_conf(collection_name)
     if vdb != "chromadb":
-        log.info("Manual ingest fallback supports Chroma only (skipping for vdb=%s)", vdb)
+        log.info(
+            "Manual ingest fallback supports Chroma only (skipping for vdb=%s)", vdb
+        )
         return 0
 
     emb = _build_watsonx_embeddings()
@@ -393,8 +426,12 @@ def _manual_ingest_with_watsonx(
     if coll is None:
         return 0
 
-    include = set(include_ext or _env_list("A2A_INCLUDE_EXT", ".md,.mdx,.py,.ipynb,.txt"))
-    exclude = set(exclude_ext or _env_list("A2A_EXCLUDE_EXT", ".png,.jpg,.jpeg,.gif,.pdf"))
+    include = set(
+        include_ext or _env_list("A2A_INCLUDE_EXT", ".md,.mdx,.py,.ipynb,.txt")
+    )
+    exclude = set(
+        exclude_ext or _env_list("A2A_EXCLUDE_EXT", ".png,.jpg,.jpeg,.gif,.pdf")
+    )
 
     def _allowed(p: Path) -> bool:
         ext = p.suffix.lower()
@@ -446,7 +483,10 @@ def _manual_ingest_with_watsonx(
                         },
                     )
                     continue
-                log.warning("Manual ingest: embeddings failed for file", extra={"file": str(f), "error": str(e)})
+                log.warning(
+                    "Manual ingest: embeddings failed for file",
+                    extra={"file": str(f), "error": str(e)},
+                )
                 vectors = None
             # success path
             if vectors is None:
@@ -472,10 +512,18 @@ def _manual_ingest_with_watsonx(
                         coll.delete(ids=ids)
                     except Exception:
                         pass
-                    coll.add(ids=ids, documents=chunks, embeddings=vectors, metadatas=metadatas)
+                    coll.add(
+                        ids=ids,
+                        documents=chunks,
+                        embeddings=vectors,
+                        metadatas=metadatas,
+                    )
                 total_added += len(chunks)
             except Exception as e:
-                log.warning("Manual ingest: chroma add failed", extra={"file": str(f), "error": str(e)})
+                log.warning(
+                    "Manual ingest: chroma add failed",
+                    extra={"file": str(f), "error": str(e)},
+                )
             break  # done with this file (we successfully embedded at this size)
 
     log.info("Manual ingest added chunks", extra={"count": total_added})
@@ -508,7 +556,10 @@ def _manual_query_with_watsonx(
     q_safe = q
     char_limit = _char_limit_for_model()
     if len(q_safe) > char_limit:
-        log.debug("Query truncated for embeddings limit", extra={"orig_len": len(q), "new_len": char_limit})
+        log.debug(
+            "Query truncated for embeddings limit",
+            extra={"orig_len": len(q), "new_len": char_limit},
+        )
         q_safe = q_safe[:char_limit]
 
     try:
@@ -541,6 +592,7 @@ def _manual_query_with_watsonx(
 
 
 # ---------- factory & accessor ----------
+
 
 def make_rag(collection_name: Optional[str] = None) -> RagTool:
     """
@@ -638,6 +690,7 @@ def get_rag(collection_name: Optional[str] = None) -> RagTool:
 
 # ---------- operations used by the FastAPI router ----------
 
+
 def ingest_paths(
     rag: RagTool,
     paths: List[str],
@@ -662,7 +715,9 @@ def ingest_paths(
     )
 
     def _do_add(p: Path):
-        add_fn = getattr(rag, "add", None) or getattr(getattr(rag, "app", None), "add", None)
+        add_fn = getattr(rag, "add", None) or getattr(
+            getattr(rag, "app", None), "add", None
+        )
         if not callable(add_fn):
             log.error("RagTool has no usable add()")
             raise AttributeError("RagTool has no 'add' method (nor app.add).")
@@ -679,14 +734,18 @@ def ingest_paths(
             )
             # Fail fast if the server cannot see the path (common Docker/host mismatch)
             if not exists:
-                raise FileNotFoundError(f"Ingest path not found on server filesystem: {p}")
+                raise FileNotFoundError(
+                    f"Ingest path not found on server filesystem: {p}"
+                )
 
             # Optional: enforce ingests under knowledge dir
             if os.getenv("A2A_STRICT_INGEST_ROOT", "0") == "1":
                 base = _effective_root()
                 pres = p.resolve()
                 if base not in pres.parents and pres != base:
-                    raise PermissionError(f"Refusing to ingest outside knowledge dir: {p}")
+                    raise PermissionError(
+                        f"Refusing to ingest outside knowledge dir: {p}"
+                    )
 
             return add_fn(
                 data_type="directory" if p.is_dir() else "file",
@@ -740,9 +799,14 @@ def ingest_paths(
             exclude_ext=exclude,
         )
         if added > 0:
-            log.info("Fallback ingest succeeded", extra={"chunks_added": added, "collection": coll_name})
+            log.info(
+                "Fallback ingest succeeded",
+                extra={"chunks_added": added, "collection": coll_name},
+            )
         else:
-            log.warning("Fallback ingest added 0 chunks", extra={"collection": coll_name})
+            log.warning(
+                "Fallback ingest added 0 chunks", extra={"collection": coll_name}
+            )
 
     log.info("Ingest done", extra={"count": len(paths)})
     return {
@@ -767,7 +831,13 @@ def query(
     coll = _get_collection_from_rag(rag)
     log.info(
         "Query start",
-        extra={"q_preview": q[:160], "k": k, "score_threshold": score_threshold, "q_len": len(q), "collection": coll},
+        extra={
+            "q_preview": q[:160],
+            "k": k,
+            "score_threshold": score_threshold,
+            "q_len": len(q),
+            "collection": coll,
+        },
     )
     raw = None
     results: List[Dict[str, Any]] = []
@@ -795,7 +865,10 @@ def query(
 
     # If tool path returned nothing, try the manual Watsonx+Chroma query
     if not results and os.getenv("A2A_RAG_FALLBACK_LC", "1") == "1":
-        log.info("Attempting manual query fallback (watsonx+chroma)", extra={"collection": coll})
+        log.info(
+            "Attempting manual query fallback (watsonx+chroma)",
+            extra={"collection": coll},
+        )
         try:
             results = _manual_query_with_watsonx(q, k, score_threshold, coll)
         except Exception:
@@ -803,7 +876,14 @@ def query(
             results = []
 
     try:
-        log.info("Query done", extra={"raw_type": str(type(raw)), "results": len(results), "collection": coll})
+        log.info(
+            "Query done",
+            extra={
+                "raw_type": str(type(raw)),
+                "results": len(results),
+                "collection": coll,
+            },
+        )
         if results:
             top = results[0]
             preview = (top.get("text") or "")[:200]
@@ -812,7 +892,10 @@ def query(
         else:
             log.warning(
                 "Query returned zero results",
-                extra={"hint": "ensure embeddings; verify path visibility; fallback enabled; re-ingest", "collection": coll},
+                extra={
+                    "hint": "ensure embeddings; verify path visibility; fallback enabled; re-ingest",
+                    "collection": coll,
+                },
             )
         return results
     except Exception:
@@ -848,9 +931,13 @@ def stats(rag: RagTool) -> Dict[str, Any]:
     emb_provider, emb_model = None, None
 
     if isinstance(cfg, dict):
-        vdb_cfg = cfg.get("vectordb", {}) if isinstance(cfg.get("vectordb"), dict) else {}
+        vdb_cfg = (
+            cfg.get("vectordb", {}) if isinstance(cfg.get("vectordb"), dict) else {}
+        )
         vdb_provider = vdb_cfg.get("provider", "chromadb")
-        vdb_conf = vdb_cfg.get("config", {}) if isinstance(vdb_cfg.get("config"), dict) else {}
+        vdb_conf = (
+            vdb_cfg.get("config", {}) if isinstance(vdb_cfg.get("config"), dict) else {}
+        )
 
         # Accept both "embedding_model" and "embeddings"
         emb_section = None
@@ -861,7 +948,11 @@ def stats(rag: RagTool) -> Dict[str, Any]:
 
         if isinstance(emb_section, dict):
             emb_provider = emb_section.get("provider")
-            emb_conf = emb_section.get("config", {}) if isinstance(emb_section.get("config"), dict) else {}
+            emb_conf = (
+                emb_section.get("config", {})
+                if isinstance(emb_section.get("config"), dict)
+                else {}
+            )
             emb_model = emb_conf.get("model_id") or emb_conf.get("model")
 
     # basic on-disk info (for Chroma)
@@ -890,6 +981,7 @@ def stats(rag: RagTool) -> Dict[str, Any]:
     if vdb_provider == "chromadb":
         try:
             import chromadb  # type: ignore
+
             client = chromadb.PersistentClient(path=chroma_path)
             try:
                 coll = client.get_collection(collection_name)

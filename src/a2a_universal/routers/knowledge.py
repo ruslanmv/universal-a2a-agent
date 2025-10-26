@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..ext.crew_rag import (
-    get_rag,              # per-collection RagTool (cached)
+    get_rag,  # per-collection RagTool (cached)
     ingest_paths,
     query as rag_query,
     reset as rag_reset,
@@ -74,7 +74,10 @@ def ingest(req: IngestReq):
         )
         log.info(
             "HTTP ingest done",
-            extra={"indexed": len(resp.get("indexed", [])), "collection": getattr(rag, "_collection_name", None)},
+            extra={
+                "indexed": len(resp.get("indexed", [])),
+                "collection": getattr(rag, "_collection_name", None),
+            },
         )
         return resp
     except Exception as e:
@@ -111,13 +114,20 @@ def query(req: QueryReq):
 
 
 @router.post("/reset")
-def reset(collection: Optional[str] = Query(default=None, description="Optional collection to reset")):
+def reset(
+    collection: Optional[str] = Query(
+        default=None, description="Optional collection to reset"
+    )
+):
     """
     Reset the knowledge index for the specified collection (or default).
     """
     _ensure_enabled()
     rag = get_rag(collection)
-    log.info("HTTP reset", extra={"collection": getattr(rag, "_collection_name", None) or collection})
+    log.info(
+        "HTTP reset",
+        extra={"collection": getattr(rag, "_collection_name", None) or collection},
+    )
     try:
         return rag_reset(rag)
     except Exception as e:
@@ -126,13 +136,20 @@ def reset(collection: Optional[str] = Query(default=None, description="Optional 
 
 
 @router.get("/stats")
-def stats(collection: Optional[str] = Query(default=None, description="Optional collection to inspect")):
+def stats(
+    collection: Optional[str] = Query(
+        default=None, description="Optional collection to inspect"
+    )
+):
     """
     Get knowledge index stats for the specified collection (or default).
     """
     _ensure_enabled()
     rag = get_rag(collection)
-    log.debug("HTTP stats", extra={"collection": getattr(rag, "_collection_name", None) or collection})
+    log.debug(
+        "HTTP stats",
+        extra={"collection": getattr(rag, "_collection_name", None) or collection},
+    )
     try:
         out = rag_stats(rag)
         # If a specific collection was requested, reflect it explicitly

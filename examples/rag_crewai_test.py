@@ -70,7 +70,9 @@ REPO_URL = "https://github.com/ruslanmv/universal-a2a-agent.git"
 TUTORIAL_PATH = "docs/tutorial.md"  # relative to repo root
 
 # Friendly defaults
-DEFAULT_QUESTION_TUTORIAL = "From the Universal A2A tutorial, list the primary endpoints and how to call them."
+DEFAULT_QUESTION_TUTORIAL = (
+    "From the Universal A2A tutorial, list the primary endpoints and how to call them."
+)
 DEFAULT_QUESTION = " what is A2A "
 DEFAULT_THRESHOLD = 0.0  # permissive for smoke tests
 
@@ -97,7 +99,10 @@ INLINE_QUESTION = "List the primary endpoints mentioned in the A2A Test Doc."
 
 # ------------------------------- HTTP helpers -------------------------------
 
-def _get(base: str, path: str, timeout: int = 15, params: Optional[Dict[str, Any]] = None) -> requests.Response:
+
+def _get(
+    base: str, path: str, timeout: int = 15, params: Optional[Dict[str, Any]] = None
+) -> requests.Response:
     return requests.get(f"{base}{path}", timeout=timeout, params=params or {})
 
 
@@ -108,10 +113,13 @@ def _post(
     timeout: int = 60,
     params: Optional[Dict[str, Any]] = None,
 ) -> requests.Response:
-    return requests.post(f"{base}{path}", json=json_body, timeout=timeout, params=params or {})
+    return requests.post(
+        f"{base}{path}", json=json_body, timeout=timeout, params=params or {}
+    )
 
 
 # ------------------------------- util helpers -------------------------------
+
 
 def run(cmd: List[str], cwd: Optional[Path] = None) -> None:
     print(f"$ {' '.join(cmd)}", flush=True)
@@ -142,7 +150,9 @@ def _parse_bind_map(s: Optional[str]) -> Optional[Tuple[Path, Path]]:
     return Path(host).resolve(), Path(container)
 
 
-def _rewrite_for_container(p: Path, bind: Optional[Tuple[Path, Path]]) -> Optional[Path]:
+def _rewrite_for_container(
+    p: Path, bind: Optional[Tuple[Path, Path]]
+) -> Optional[Path]:
     """If p is under bind host_root, return its container path; else None."""
     if not bind:
         return None
@@ -180,7 +190,9 @@ def _stage_into_bind(src: Path, bind: Tuple[Path, Path]) -> Tuple[Path, Path]:
     return dest_host, dest_container
 
 
-def derive_collection_name(source: str, mode: str, user_collection: Optional[str]) -> str:
+def derive_collection_name(
+    source: str, mode: str, user_collection: Optional[str]
+) -> str:
     """Derive a sensible collection name if not provided by the user."""
     if user_collection:
         return user_collection
@@ -195,15 +207,23 @@ def derive_collection_name(source: str, mode: str, user_collection: Optional[str
 
 # --------------------------------- checks -----------------------------------
 
+
 def check_knowledge_enabled(base: str, collection: Optional[str]) -> Dict[str, Any]:
     try:
-        r = _get(base, "/knowledge/stats", timeout=15, params={"collection": collection} if collection else None)
+        r = _get(
+            base,
+            "/knowledge/stats",
+            timeout=15,
+            params={"collection": collection} if collection else None,
+        )
     except requests.RequestException as e:
         print(f"❌ Cannot reach {base}/knowledge/stats: {e}")
         sys.exit(2)
 
     if r.status_code == 503:
-        print("❌ /knowledge is disabled. Set A2A_ENABLE_KNOWLEDGE=1 on the server and restart.")
+        print(
+            "❌ /knowledge is disabled. Set A2A_ENABLE_KNOWLEDGE=1 on the server and restart."
+        )
         sys.exit(3)
     if r.status_code != 200:
         print(f"❌ Unexpected status from /knowledge/stats: {r.status_code} {r.text}")
@@ -214,14 +234,22 @@ def check_knowledge_enabled(base: str, collection: Optional[str]) -> Dict[str, A
         stats = r.json()
     except Exception:
         pass
-    print(f"✅ /knowledge is enabled (collection={collection or 'default'}): {json.dumps(stats, indent=2)}")
+    print(
+        f"✅ /knowledge is enabled (collection={collection or 'default'}): {json.dumps(stats, indent=2)}"
+    )
     return stats
 
 
 def reset_index(base: str, collection: Optional[str]) -> None:
     print(f"→ Resetting knowledge index (collection={collection or 'default'})...")
     try:
-        r = _post(base, "/knowledge/reset", json_body={}, timeout=60, params={"collection": collection} if collection else None)
+        r = _post(
+            base,
+            "/knowledge/reset",
+            json_body={},
+            timeout=60,
+            params={"collection": collection} if collection else None,
+        )
     except requests.RequestException as e:
         print(f"❌ Reset failed: {e}")
         sys.exit(5)
@@ -232,6 +260,7 @@ def reset_index(base: str, collection: Optional[str]) -> None:
 
 
 # -------------------------------- ingest ------------------------------------
+
 
 def ingest_paths(
     base: str,
@@ -266,9 +295,16 @@ def ingest_paths(
     print("✅ Ingest ok:", json.dumps(r.json(), indent=2))
 
 
-def fetch_stats(base: str, label: str = "Stats", collection: Optional[str] = None) -> Dict[str, Any]:
+def fetch_stats(
+    base: str, label: str = "Stats", collection: Optional[str] = None
+) -> Dict[str, Any]:
     try:
-        r = _get(base, "/knowledge/stats", timeout=15, params={"collection": collection} if collection else None)
+        r = _get(
+            base,
+            "/knowledge/stats",
+            timeout=15,
+            params={"collection": collection} if collection else None,
+        )
         s = r.json() if r.status_code == 200 else {}
     except Exception:
         s = {}
@@ -278,6 +314,7 @@ def fetch_stats(base: str, label: str = "Stats", collection: Optional[str] = Non
 
 # --------------------------------- query ------------------------------------
 
+
 def query(
     base: str,
     question: str,
@@ -285,7 +322,11 @@ def query(
     score_threshold: float = DEFAULT_THRESHOLD,
     collection: Optional[str] = None,
 ) -> List[Any]:
-    payload: Dict[str, Any] = {"q": question, "k": k, "score_threshold": score_threshold}
+    payload: Dict[str, Any] = {
+        "q": question,
+        "k": k,
+        "score_threshold": score_threshold,
+    }
     if collection:
         payload["collection"] = collection
 
@@ -369,7 +410,9 @@ def _extract_view(item: Any) -> Tuple[str, Optional[float], str]:
             text = getattr(item, "page_content", "") or ""
             meta = getattr(item, "metadata", {}) or {}
             score = meta.get("score")
-            src = meta.get("source") or meta.get("path") or meta.get("file") or "unknown"
+            src = (
+                meta.get("source") or meta.get("path") or meta.get("file") or "unknown"
+            )
             return str(text), float(score) if score is not None else None, str(src)
         except Exception:
             pass
@@ -380,7 +423,9 @@ def _extract_view(item: Any) -> Tuple[str, Optional[float], str]:
 
 def pretty_print(results: List[Any], max_chars: int = 320) -> None:
     if not results:
-        print("No results. If you just switched embeddings providers, reset + re-ingest your data.\n")
+        print(
+            "No results. If you just switched embeddings providers, reset + re-ingest your data.\n"
+        )
         return
 
     for i, res in enumerate(results, 1):
@@ -391,36 +436,76 @@ def pretty_print(results: List[Any], max_chars: int = 320) -> None:
 
 # --------------------------------- main -------------------------------------
 
-def main():
-    ap = argparse.ArgumentParser(description="Smoke test for /knowledge endpoints (production-ready).")
 
-    ap.add_argument("--base", default=os.getenv("A2A_BASE", "http://localhost:8000"), help="Base URL of A2A server")
-    ap.add_argument("--mode", choices=["file", "repo"], default="file",
-                    help="(source=github only) Ingest single file (docs/tutorial.md) or entire repo")
-    ap.add_argument("--source", choices=["github", "local", "inline"], default="github",
-                    help="Where to read content from")
-    ap.add_argument("--local-path", default=None,
-                    help="When --source=local, path to file or directory (default: ../docs/tutorial.md)")
+def main():
+    ap = argparse.ArgumentParser(
+        description="Smoke test for /knowledge endpoints (production-ready)."
+    )
+
+    ap.add_argument(
+        "--base",
+        default=os.getenv("A2A_BASE", "http://localhost:8000"),
+        help="Base URL of A2A server",
+    )
+    ap.add_argument(
+        "--mode",
+        choices=["file", "repo"],
+        default="file",
+        help="(source=github only) Ingest single file (docs/tutorial.md) or entire repo",
+    )
+    ap.add_argument(
+        "--source",
+        choices=["github", "local", "inline"],
+        default="github",
+        help="Where to read content from",
+    )
+    ap.add_argument(
+        "--local-path",
+        default=None,
+        help="When --source=local, path to file or directory (default: ../docs/tutorial.md)",
+    )
     ap.add_argument("--question", default=None, help="Query to run after ingestion")
     ap.add_argument("--k", type=int, default=6, help="Top-k results to fetch")
-    ap.add_argument("--score_threshold", type=float, default=DEFAULT_THRESHOLD,
-                    help="Retrieval score threshold (0.0 recommended for smoke tests)")
-    ap.add_argument("--reset", action="store_true",
-                    help="Reset the knowledge index before ingesting")
-    ap.add_argument("--collection", default=None,
-                    help="Optional explicit collection name for this test run")
+    ap.add_argument(
+        "--score_threshold",
+        type=float,
+        default=DEFAULT_THRESHOLD,
+        help="Retrieval score threshold (0.0 recommended for smoke tests)",
+    )
+    ap.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset the knowledge index before ingesting",
+    )
+    ap.add_argument(
+        "--collection",
+        default=None,
+        help="Optional explicit collection name for this test run",
+    )
 
     # NEW: Bind-map & staging so the server can see your paths inside Docker
-    ap.add_argument("--bind-map", default=None,
-                    help="HOST:CONTAINER path mapping for Docker (e.g., /Users/me/project:/work)")
-    ap.add_argument("--stage-into-bind", action="store_true",
-                    help="Copy content into the host side of the bind and ingest via the container path")
+    ap.add_argument(
+        "--bind-map",
+        default=None,
+        help="HOST:CONTAINER path mapping for Docker (e.g., /Users/me/project:/work)",
+    )
+    ap.add_argument(
+        "--stage-into-bind",
+        action="store_true",
+        help="Copy content into the host side of the bind and ingest via the container path",
+    )
 
     # Pass-through include/exclude (to match server defaults if you customize)
-    ap.add_argument("--include-ext", default=DEFAULT_INCLUDE_EXT,
-                    help=f"Comma-separated include extensions (default: {DEFAULT_INCLUDE_EXT})")
-    ap.add_argument("--exclude-ext", default=DEFAULT_EXCLUDE_EXT,
-                    help=f"Comma-separated exclude extensions (default: {DEFAULT_EXCLUDE_EXT})")
+    ap.add_argument(
+        "--include-ext",
+        default=DEFAULT_INCLUDE_EXT,
+        help=f"Comma-separated include extensions (default: {DEFAULT_INCLUDE_EXT})",
+    )
+    ap.add_argument(
+        "--exclude-ext",
+        default=DEFAULT_EXCLUDE_EXT,
+        help=f"Comma-separated exclude extensions (default: {DEFAULT_EXCLUDE_EXT})",
+    )
 
     args = ap.parse_args()
 
@@ -459,13 +544,17 @@ def main():
             # Staging or rewrite (so server can see it in container)
             if args.stage_into_bind and bind:
                 host_staged, container_staged = _stage_into_bind(target, bind)
-                print(f"↳ Staged into bind: host={host_staged} -> container={container_staged}")
+                print(
+                    f"↳ Staged into bind: host={host_staged} -> container={container_staged}"
+                )
                 target_paths = [container_staged]
             else:
                 rewritten = _rewrite_for_container(target, bind) if bind else None
                 target_paths = [rewritten or target]
 
-            question = question or (DEFAULT_QUESTION_TUTORIAL if args.mode == "file" else DEFAULT_QUESTION)
+            question = question or (
+                DEFAULT_QUESTION_TUTORIAL if args.mode == "file" else DEFAULT_QUESTION
+            )
 
         elif args.source == "local":
             if args.local_path:
@@ -482,12 +571,16 @@ def main():
 
             if args.stage_into_bind and bind:
                 host_staged, container_staged = _stage_into_bind(target, bind)
-                print(f"↳ Staged into bind: host={host_staged} -> container={container_staged}")
+                print(
+                    f"↳ Staged into bind: host={host_staged} -> container={container_staged}"
+                )
                 target_paths = [container_staged]
             else:
                 rewritten = _rewrite_for_container(target, bind) if bind else None
                 if bind and rewritten is None:
-                    print("⚠️  --bind-map provided but target is not under HOST prefix; using original path (may not be visible in container).")
+                    print(
+                        "⚠️  --bind-map provided but target is not under HOST prefix; using original path (may not be visible in container)."
+                    )
                 target_paths = [rewritten or target]
 
             question = question or DEFAULT_QUESTION_TUTORIAL
@@ -499,7 +592,9 @@ def main():
 
             if args.stage_into_bind and bind:
                 host_staged, container_staged = _stage_into_bind(inline_file, bind)
-                print(f"↳ Staged into bind: host={host_staged} -> container={container_staged}")
+                print(
+                    f"↳ Staged into bind: host={host_staged} -> container={container_staged}"
+                )
                 target_paths = [container_staged]
             else:
                 rewritten = _rewrite_for_container(inline_file, bind) if bind else None
@@ -525,19 +620,20 @@ def main():
         vdb = ((post_stats or {}).get("vectordb") or {}).get("provider", "")
         post_count = coll.get("count") if isinstance(coll, dict) else None
 
-        grew = (
-            isinstance(post_count, int)
-            and (
-                (isinstance(pre_count, int) and post_count > pre_count)
-                or (pre_count is None and post_count >= 1)
-            )
+        grew = isinstance(post_count, int) and (
+            (isinstance(pre_count, int) and post_count > pre_count)
+            or (pre_count is None and post_count >= 1)
         )
 
         if vdb == "chromadb" and not grew:
             print("⚠️  Warning: Chroma collection count did not grow after ingest.")
-            print("   If the server runs in Docker, ensure the ingested path exists inside the container.")
+            print(
+                "   If the server runs in Docker, ensure the ingested path exists inside the container."
+            )
             if bind:
-                print("   Tip: use --stage-into-bind to copy the target into the bind mount automatically.")
+                print(
+                    "   Tip: use --stage-into-bind to copy the target into the bind mount automatically."
+                )
 
         # 5) Query (from same collection)
         results = query(
@@ -549,8 +645,12 @@ def main():
         )
         pretty_print(results)
 
-        print("\n🎉 Smoke test looks healthy if results above reference the ingested content.")
-        print("   If you see zero/irrelevant hits, verify embeddings, lower score_threshold, ensure path visibility or use --stage-into-bind.")
+        print(
+            "\n🎉 Smoke test looks healthy if results above reference the ingested content."
+        )
+        print(
+            "   If you see zero/irrelevant hits, verify embeddings, lower score_threshold, ensure path visibility or use --stage-into-bind."
+        )
 
     finally:
         # Clean up the cloned repo/inline file (optional)
