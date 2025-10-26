@@ -3,6 +3,7 @@ from typing import Optional
 import os
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "anthropic"
     name = "Anthropic Claude"
@@ -17,6 +18,7 @@ class Provider(ProviderBase):
             return
         try:
             import anthropic  # type: ignore
+
             self._client = anthropic.Anthropic(api_key=api)
             self.ready = True
             self.reason = "Anthropic client ready"

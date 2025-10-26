@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any
 from ..frameworks import FrameworkBase, _call_provider, _extract_last_user_text
 
+
 class Framework(FrameworkBase):
     id = "native"
     name = "Native PassThrough"

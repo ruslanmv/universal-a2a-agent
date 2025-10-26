@@ -1,9 +1,12 @@
 # examples/quickstart_crewai_watsonx.py
 import httpx
 from crewai import Agent, Task, Crew
-from crewai_tools import Tool  # FIXED: Import the 'Tool' class, not the 'tool' decorator.
+from crewai_tools import (
+    Tool,
+)  # FIXED: Import the 'Tool' class, not the 'tool' decorator.
 
 BASE = "http://localhost:8000"
+
 
 # -------------------------------------------------------------------
 # Define the function as a standard Python function (no decorator)
@@ -31,6 +34,7 @@ def a2a_call(prompt: str) -> str:
     except Exception as e:
         return f"[A2A call failed: {e}]"
 
+
 # -------------------------------------------------------------------
 # CrewAI setup
 # -------------------------------------------------------------------
@@ -47,7 +51,7 @@ if __name__ == "__main__":
         goal="Use the A2A tool (watsonx-backed) to answer user prompts",
         backstory="An expert in delegating tasks to other specialized agents.",
         tools=[a2a_tool],  # FIXED: Pass the Tool instance to the agent
-        verbose=True
+        verbose=True,
     )
 
     task = Task(

@@ -22,9 +22,10 @@ from typing import Callable, Dict, Any
 
 from .providers import ProviderBase
 
-log = logging.getLogger(__name__) # <-- 2. INITIALIZE LOGGER
+log = logging.getLogger(__name__)  # <-- 2. INITIALIZE LOGGER
 
 # ===== Base contract ============================================================
+
 
 class FrameworkBase:
     """All framework plugins must accept a Provider and implement async execute()."""
@@ -39,7 +40,9 @@ class FrameworkBase:
         self.ready = True
         self.reason = ""
 
-    async def execute(self, messages: list[dict[str, Any]]) -> str:  # pragma: no cover - interface
+    async def execute(
+        self, messages: list[dict[str, Any]]
+    ) -> str:  # pragma: no cover - interface
         raise NotImplementedError
 
 
@@ -61,7 +64,10 @@ class NotReadyFramework(FrameworkBase):
 
 # ===== Async provider shim ======================================================
 
-async def _call_provider(provider: ProviderBase, prompt: str, messages: list[dict[str, Any]]) -> str:
+
+async def _call_provider(
+    provider: ProviderBase, prompt: str, messages: list[dict[str, Any]]
+) -> str:
     """
     Call provider.generate asynchronously, offloading sync providers to a thread.
 
@@ -112,8 +118,11 @@ Factory = Callable[[ProviderBase], FrameworkBase]
 
 def _safe_factory_from_module(module_name: str, fallback_id: str) -> Factory:
     """Wrap import/instantiation errors into a NotReadyFramework with clear reason."""
+
     def _stub(provider: ProviderBase) -> FrameworkBase:
-        return NotReadyFramework(provider, fallback_id, reason="Module missing Framework/get_framework")
+        return NotReadyFramework(
+            provider, fallback_id, reason="Module missing Framework/get_framework"
+        )
 
     try:
         mod = importlib.import_module(module_name)
@@ -121,30 +130,45 @@ def _safe_factory_from_module(module_name: str, fallback_id: str) -> Factory:
         # FIX: Capture the exception variable 'e' as a default argument
         # to ensure it's available when _err is called later.
         def _err(provider: ProviderBase, captured_e=e) -> FrameworkBase:
-            return NotReadyFramework(provider, fallback_id, reason=f"Import error: {captured_e}")
+            return NotReadyFramework(
+                provider, fallback_id, reason=f"Import error: {captured_e}"
+            )
+
         return _err
 
     # Priority 1: get_framework(provider: ProviderBase) -> FrameworkBase
     getf = getattr(mod, "get_framework", None)
     if callable(getf):
+
         def _ok_fn(provider: ProviderBase) -> FrameworkBase:
             try:
                 fw = getf(provider)  # type: ignore[misc]
                 if isinstance(fw, FrameworkBase):
                     return fw
-                return NotReadyFramework(provider, fallback_id, reason="get_framework() did not return FrameworkBase")
+                return NotReadyFramework(
+                    provider,
+                    fallback_id,
+                    reason="get_framework() did not return FrameworkBase",
+                )
             except Exception as e:
-                return NotReadyFramework(provider, fallback_id, reason=f"get_framework() failed: {e}")
+                return NotReadyFramework(
+                    provider, fallback_id, reason=f"get_framework() failed: {e}"
+                )
+
         return _ok_fn
 
     # Priority 2: class Framework(FrameworkBase)
     cls = getattr(mod, "Framework", None)
     if inspect.isclass(cls) and issubclass(cls, FrameworkBase):
+
         def _ok_cls(provider: ProviderBase) -> FrameworkBase:
             try:
                 return cls(provider)  # type: ignore[misc]
             except Exception as e:
-                return NotReadyFramework(provider, fallback_id, reason=f"Framework() init failed: {e}")
+                return NotReadyFramework(
+                    provider, fallback_id, reason=f"Framework() init failed: {e}"
+                )
+
         return _ok_cls
 
     return _stub
@@ -192,13 +216,19 @@ try:  # Python 3.10+ style
                         fw = obj(provider)
                         if isinstance(fw, FrameworkBase):
                             return fw
-                    return NotReadyFramework(provider, fid, reason="entry point did not yield FrameworkBase")
+                    return NotReadyFramework(
+                        provider, fid, reason="entry point did not yield FrameworkBase"
+                    )
                 except Exception as e:
-                    return NotReadyFramework(provider, fid, reason=f"entry point load error: {e}")
+                    return NotReadyFramework(
+                        provider, fid, reason=f"entry point load error: {e}"
+                    )
 
             out[fid] = _factory
         return out
+
 except Exception:  # pragma: no cover
+
     def _discover_entry_points() -> Dict[str, Factory]:
         return {}
 
@@ -246,7 +276,11 @@ def build_framework(provider: ProviderBase) -> FrameworkBase:
 
     # Fallback chain
     # <-- 5. LOG THE FALLBACK ACTION
-    log.warning(f"Framework '{want}' not found or failed to load. Falling back to 'native'.")
+    log.warning(
+        f"Framework '{want}' not found or failed to load. Falling back to 'native'."
+    )
     if "native" in _REGISTRY:
         return _REGISTRY["native"](provider)
-    return NotReadyFramework(provider, want or "unknown", reason="No frameworks discovered")
+    return NotReadyFramework(
+        provider, want or "unknown", reason="No frameworks discovered"
+    )

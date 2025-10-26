@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import Optional
-import os, json
+import os
+import json
 from ..providers import ProviderBase
+
 
 class Provider(ProviderBase):
     id = "bedrock"
@@ -9,11 +11,16 @@ class Provider(ProviderBase):
     supports_messages = False
 
     def __init__(self) -> None:
-        self._model_id = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
+        self._model_id = os.getenv(
+            "BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0"
+        )
         self._region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
         try:
             import boto3  # type: ignore
-            self._client = boto3.client("bedrock-runtime", region_name=self._region)  # creds via env/instance
+
+            self._client = boto3.client(
+                "bedrock-runtime", region_name=self._region
+            )  # creds via env/instance
             self.ready = True
             self.reason = f"Bedrock client ready (model={self._model_id})"
         except Exception as e:
@@ -32,7 +39,9 @@ class Provider(ProviderBase):
             "anthropic_version": "bedrock-2023-05-31",
         }
         try:
-            res = self._client.invoke_model(modelId=self._model_id, body=json.dumps(body))
+            res = self._client.invoke_model(
+                modelId=self._model_id, body=json.dumps(body)
+            )
             payload = json.loads(res.get("body").read().decode("utf-8"))
             for blk in payload.get("content", []):
                 if blk.get("type") == "text":

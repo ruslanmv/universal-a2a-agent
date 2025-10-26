@@ -6,19 +6,19 @@ import sys
 
 # Load environment variables FIRST, before importing any local modules that use them.
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
 from crewai import Agent, Task, Crew
 
-from a2a_universal.provider_api import crew_llm   # <-- import directly from provider_api
 from a2a_universal.adapters.crewai_tool import A2ATool
 from a2a_universal.provider_api import llm as model  # auto-chooses CrewAI LLM by env
 
 if __name__ == "__main__":
     # Get CrewAI LLM via active provider (e.g., LLM_PROVIDER=watsonx)
     try:
-        #llm = crew_llm()
+        # llm = crew_llm()
         llm = model()  # -> CrewAI LLM with model="watsonx/<MODEL_ID>", creds from env
     except Exception as e:
         sys.stderr.write(f"[fatal] Could not initialize LLM: {e}\n")
@@ -79,7 +79,9 @@ if __name__ == "__main__":
         expected_output="A Markdown day-plan with times, locations, and weather-aware alternatives.",
     )
 
-    crew = Crew(agents=[meteorologist, planner], tasks=[t_weather, t_plan], verbose=True)
+    crew = Crew(
+        agents=[meteorologist, planner], tasks=[t_weather, t_plan], verbose=True
+    )
     result = crew.kickoff()
 
     print("\n=== FINAL ITINERARY ===\n")

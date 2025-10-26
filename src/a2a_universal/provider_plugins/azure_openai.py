@@ -3,6 +3,7 @@ from typing import Optional
 import os
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "azure_openai"
     name = "Azure OpenAI"
@@ -22,7 +23,12 @@ class Provider(ProviderBase):
         try:
             from azure.ai.openai import OpenAIClient  # type: ignore
             from azure.core.credentials import AzureKeyCredential  # type: ignore
-            self._client = OpenAIClient(endpoint=endpoint, credential=AzureKeyCredential(key), api_version=api_version)
+
+            self._client = OpenAIClient(
+                endpoint=endpoint,
+                credential=AzureKeyCredential(key),
+                api_version=api_version,
+            )
             self.ready = True
             self.reason = "Azure OpenAI client ready"
         except Exception as e:

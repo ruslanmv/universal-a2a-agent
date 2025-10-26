@@ -4,6 +4,7 @@ import os
 
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "watsonx"
     name = "IBM watsonx.ai"
@@ -29,7 +30,9 @@ class Provider(ProviderBase):
             return
         try:
             creds = Credentials(url=url, api_key=api_key)
-            self._model = ModelInference(model_id=self._model_id, credentials=creds, project_id=proj)
+            self._model = ModelInference(
+                model_id=self._model_id, credentials=creds, project_id=proj
+            )
             # sanity ping
             self._model.get_details()
             self.ready = True
@@ -44,6 +47,7 @@ class Provider(ProviderBase):
             return f"[watsonx not ready] {self.reason}"
         try:
             from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams  # type: ignore
+
             msg = (prompt or "").strip()
             if not msg and messages:
                 for m in reversed(messages):
@@ -53,10 +57,14 @@ class Provider(ProviderBase):
                             msg = c
                             break
             msg = msg or "Say hello."
-            raw = self._model.generate_text(prompt=msg, params={
-                GenParams.DECODING_METHOD: "greedy",
-                GenParams.MAX_NEW_TOKENS: 256,
-            }, raw_response=True)
+            raw = self._model.generate_text(
+                prompt=msg,
+                params={
+                    GenParams.DECODING_METHOD: "greedy",
+                    GenParams.MAX_NEW_TOKENS: 256,
+                },
+                raw_response=True,
+            )
             if raw and raw.get("results"):
                 return (raw["results"][0]["generated_text"] or "").strip()
             return "Sorry, empty response from watsonx.ai."

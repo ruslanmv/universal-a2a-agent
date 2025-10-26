@@ -24,6 +24,7 @@ load_dotenv()
 
 BASE = os.getenv("A2A_BASE", "http://localhost:8000")
 
+
 # -------------------------------------------------------------------
 # Universal A2A tool wrapper
 # -------------------------------------------------------------------
@@ -53,6 +54,7 @@ def a2a_call(prompt: str) -> str:
     except Exception as e:
         return f"[A2A call failed: {e}]"
 
+
 # -------------------------------------------------------------------
 # Main: Watsonx Orchestrator + LangGraph Agent
 # -------------------------------------------------------------------
@@ -74,7 +76,10 @@ if __name__ == "__main__":
         project_id=project_id,
         base_url=url,
         apikey=api_key,
-        params={"decoding_method": "greedy", "max_new_tokens": 512}, # Increased tokens for a more complex task
+        params={
+            "decoding_method": "greedy",
+            "max_new_tokens": 512,
+        },  # Increased tokens for a more complex task
         temperature=0.0,
     )
 
@@ -90,9 +95,7 @@ if __name__ == "__main__":
 
     # Build Agent using the modern LangGraph prebuilt helper
     agent_executor = create_react_agent(
-        model=llm,
-        tools=[expert_tool],
-        checkpointer=checkpointer
+        model=llm, tools=[expert_tool], checkpointer=checkpointer
     )
 
     # Define a unique ID for the conversation thread to enable memory
@@ -108,7 +111,7 @@ if __name__ == "__main__":
         {"messages": [("human", query)]},
         config=config,
     )
-    
+
     # The final answer is in the content of the last message in the state
     final_answer = response["messages"][-1].content
     print("\n[Final Answer]:\n", final_answer)

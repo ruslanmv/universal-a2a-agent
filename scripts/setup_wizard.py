@@ -15,7 +15,6 @@ Non-interactive usage (examples):
 
 from __future__ import annotations
 import argparse
-import os
 import platform
 import shutil
 import subprocess

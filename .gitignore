@@ -15,3 +15,5 @@ build/
 * copy *.*
 /deploy
 .env.exports
+.DS_Store
+/.a2a_knowledge

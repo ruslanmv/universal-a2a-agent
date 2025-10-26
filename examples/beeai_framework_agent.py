@@ -42,14 +42,22 @@ async def main(prompt: Optional[str] = None) -> None:
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         if msg.startswith("[crewai error]"):
-            print("A2A server reported CrewAI error; ensure AGENT_FRAMEWORK=native on the server.")
-            print("Server is running CrewAI framework; set AGENT_FRAMEWORK=native on the A2A server.")
+            print(
+                "A2A server reported CrewAI error; ensure AGENT_FRAMEWORK=native on the server."
+            )
+            print(
+                "Server is running CrewAI framework; set AGENT_FRAMEWORK=native on the A2A server."
+            )
         raise
 
     # If the result itself is a CrewAI error string, surface the concise hint.
     if isinstance(result, str) and result.startswith("[crewai error]"):
-        print("A2A server reported CrewAI error; ensure AGENT_FRAMEWORK=native on the server.")
-        print("Server is running CrewAI framework; set AGENT_FRAMEWORK=native on the A2A server.")
+        print(
+            "A2A server reported CrewAI error; ensure AGENT_FRAMEWORK=native on the server."
+        )
+        print(
+            "Server is running CrewAI framework; set AGENT_FRAMEWORK=native on the A2A server."
+        )
 
     print(result)
 

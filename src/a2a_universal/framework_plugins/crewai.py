@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from dotenv import load_dotenv
@@ -11,6 +10,7 @@ from ..frameworks import FrameworkBase, _call_provider, _extract_last_user_text
 # Optional: structured logging if your logging_config set it up
 try:
     import structlog  # pragma: no cover
+
     _log = structlog.get_logger("a2a.framework.crewai")
 except Exception:  # pragma: no cover
     _log = None
@@ -45,6 +45,7 @@ class Framework(FrameworkBase):
         load_dotenv()
         try:
             from crewai import Agent, Task, Crew, LLM
+
             self.Agent = Agent
             self.Task = Task
             self.Crew = Crew
@@ -62,6 +63,7 @@ class Framework(FrameworkBase):
 
     def _make_llm(self):
         from ..provider_api import crew_llm
+
         return crew_llm()
 
     async def execute(self, messages: list[dict[str, Any]]) -> str:
@@ -88,16 +90,18 @@ class Framework(FrameworkBase):
                 task = self.Task(
                     description=text or "Say hello.",
                     agent=researcher,
-                    expected_output="A concise answer to the user's query."
+                    expected_output="A concise answer to the user's query.",
                 )
                 crew = self.Crew(agents=[researcher], tasks=[task], verbose=False)
 
                 # Run the synchronous kickoff method in a thread to avoid blocking.
                 result = await asyncio.to_thread(crew.kickoff)
 
-                _log_info("CrewAI kickoff completed",
-                          result_type=type(result).__name__,
-                          prompt_len=len(text or ""))
+                _log_info(
+                    "CrewAI kickoff completed",
+                    result_type=type(result).__name__,
+                    prompt_len=len(text or ""),
+                )
                 out = _to_text(result)
                 if not out:
                     out = "[crewai] Model returned empty output."
@@ -109,4 +113,3 @@ class Framework(FrameworkBase):
 
         _log_info("CrewAI unavailable, using provider fallback")
         return await _call_provider(self.provider, text, messages)
-

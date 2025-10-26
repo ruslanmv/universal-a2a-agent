@@ -1,6 +1,8 @@
-import httpx, os, sys
+import httpx
+import os
 
 BASE = os.getenv("A2A_BASE", "http://localhost:8000")
+
 
 def call_a2a(text: str) -> str:
     payload = {
@@ -26,6 +28,7 @@ def call_a2a(text: str) -> str:
         if p.get("type") == "text":
             return p.get("text", "")
     return "[No text part in A2A response]"
+
 
 if __name__ == "__main__":
     print(call_a2a("What is the best dish in Genova?"))

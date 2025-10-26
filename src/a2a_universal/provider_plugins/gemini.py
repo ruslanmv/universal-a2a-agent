@@ -3,6 +3,7 @@ from typing import Optional
 import os
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "gemini"
     name = "Google Gemini"
@@ -17,6 +18,7 @@ class Provider(ProviderBase):
             return
         try:
             import google.generativeai as genai  # type: ignore
+
             genai.configure(api_key=api)
             model_id = os.getenv("GEMINI_MODEL", "gemini-1.5-pro")
             self._model = genai.GenerativeModel(model_id)
@@ -33,6 +35,8 @@ class Provider(ProviderBase):
         msg = (prompt or "").strip() or "Say hello."
         try:
             r = self._model.generate_content(msg)
-            return (getattr(r, "text", "") or "").strip() or "Empty response from Gemini."
+            return (
+                getattr(r, "text", "") or ""
+            ).strip() or "Empty response from Gemini."
         except Exception as e:
             return f"[gemini error] {e}"

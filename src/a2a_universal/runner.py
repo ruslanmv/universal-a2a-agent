@@ -17,6 +17,7 @@ from .server import app as _universal_app
 # Helpers
 # ------------------------------------------------------------------------------
 
+
 def _load_dotenv() -> None:
     """
     Best-effort load of a local .env file if python-dotenv is installed.
@@ -65,6 +66,7 @@ def _resolve_app(app_or_path: Optional[Union[str, ASGIApp]]) -> Optional[ASGIApp
 # RPC shim + A2A body normalizer
 # ------------------------------------------------------------------------------
 
+
 class _RpcShimAndNormalizer:
     """
     ASGI wrapper that:
@@ -106,13 +108,17 @@ class _RpcShimAndNormalizer:
                     (b"cache-control", b"no-store"),
                     (b"allow", b"POST, OPTIONS"),
                 ]
-                await send({"type": "http.response.start", "status": 200, "headers": headers})
+                await send(
+                    {"type": "http.response.start", "status": 200, "headers": headers}
+                )
                 await send({"type": "http.response.body", "body": body_bytes})
                 return
             # HEAD/OPTIONS: no body, just Allow
             status = 204
             headers = [(b"allow", b"POST, OPTIONS"), (b"cache-control", b"no-store")]
-            await send({"type": "http.response.start", "status": status, "headers": headers})
+            await send(
+                {"type": "http.response.start", "status": status, "headers": headers}
+            )
             await send({"type": "http.response.body", "body": b""})
             return
 
@@ -173,6 +179,7 @@ def _wrap_with_rpc_shim(app: Optional[ASGIApp]) -> Optional[ASGIApp]:
 # Public API
 # ------------------------------------------------------------------------------
 
+
 def compose(
     user_app: Optional[ASGIApp],
     *,
@@ -218,10 +225,12 @@ def compose(
         selected_a2a = a2a_app
     elif handler is not None:
         from .app import build as _build  # lazy to avoid cycles
+
         selected_a2a = _build(
             handler=handler,
             name=name or os.getenv("AGENT_NAME", "Universal A2A Agent"),
-            description=description or os.getenv("AGENT_DESCRIPTION", "A2A-compatible agent"),
+            description=description
+            or os.getenv("AGENT_DESCRIPTION", "A2A-compatible agent"),
             version=version or os.getenv("AGENT_VERSION", "0.1.0"),
         )
 
@@ -234,7 +243,9 @@ def compose(
     root = FastAPI(
         title="Universal A2A — Composite",
         # Avoid confusing duplicate docs when composing; your app's docs remain intact under its prefix
-        docs_url=None, redoc_url=None, openapi_url=None,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
     # Wrap both sides with the shim
@@ -243,14 +254,14 @@ def compose(
 
     if mode == "primary":
         # Universal A2A at '/', your app under '/app' (or custom user_prefix)
-        root.mount("/", a2a_app_wrapped)           # type: ignore[arg-type]
+        root.mount("/", a2a_app_wrapped)  # type: ignore[arg-type]
         root.mount(user_prefix, user_app_wrapped)  # type: ignore[arg-type]
         return root
 
     if mode == "attach":
         # Your app at '/', A2A under '/a2a' (or custom a2a_prefix)
-        root.mount("/", user_app_wrapped)          # type: ignore[arg-type]
-        root.mount(a2a_prefix, a2a_app_wrapped)    # type: ignore[arg-type]
+        root.mount("/", user_app_wrapped)  # type: ignore[arg-type]
+        root.mount(a2a_prefix, a2a_app_wrapped)  # type: ignore[arg-type]
         return root
 
     raise ValueError("mode must be one of: 'primary' | 'attach' | 'solo'")
@@ -284,15 +295,19 @@ def mount(
     selects "function mode". Otherwise, we assume you passed an app to mount under `prefix`.
     """
     # Detect "function mode"
-    effective_handler = handler if handler is not None else (
-        app_or_handler if callable(app_or_handler) else None
+    effective_handler = (
+        handler
+        if handler is not None
+        else (app_or_handler if callable(app_or_handler) else None)
     )
     if effective_handler is not None:
         from .app import build as _build  # lazy import to avoid cycles
+
         return _build(
             handler=effective_handler,
             name=name or os.getenv("AGENT_NAME", "Universal A2A Agent"),
-            description=description or os.getenv("AGENT_DESCRIPTION", "A2A-compatible agent"),
+            description=description
+            or os.getenv("AGENT_DESCRIPTION", "A2A-compatible agent"),
             version=version or os.getenv("AGENT_VERSION", "0.1.0"),
         )
 
@@ -394,7 +409,9 @@ def run(
         return
 
     # In composed modes, passing an object is fine; but uvicorn reload requires import strings.
-    if reload and not (mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app)):
+    if reload and not (
+        mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app)
+    ):
         warnings.warn(
             "reload=True is only fully supported when mode='solo' and you pass the app as an import string "
             "(and no custom A2A was injected). Continuing without reload support for a composed in-memory app.",
@@ -406,7 +423,14 @@ def run(
         application,
         host=host,
         port=port,
-        reload=False if reload and not (mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app)) else reload,
+        reload=(
+            False
+            if reload
+            and not (
+                mode == "solo" and isinstance(raw_app, str) and not (handler or a2a_app)
+            )
+            else reload
+        ),
         log_level=log_level,
         workers=workers,
     )

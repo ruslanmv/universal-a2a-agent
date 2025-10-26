@@ -1,7 +1,8 @@
 from langgraph.graph import StateGraph, END, MessagesState
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import HumanMessage, BaseMessage
 from a2a_universal.adapters.langgraph_agent import A2AAgentNode
 from typing import Any, List, Dict
+
 
 def _as_text(msg: BaseMessage | Dict[str, Any]) -> str:
     """Robustly extract text from LangChain/BaseMessage or dict-like messages."""
@@ -23,6 +24,7 @@ def _as_text(msg: BaseMessage | Dict[str, Any]) -> str:
     # Fallback
     return str(content) if content is not None else ""
 
+
 def run_debugger_graph():
     sg = StateGraph(MessagesState)
 
@@ -34,19 +36,24 @@ def run_debugger_graph():
 
     app = sg.compile()
 
-    res = app.invoke({
-        "messages": [
-            HumanMessage(content=(
-                "Error: TypeError: unsupported operand type(s) for +: 'int' and 'str'\n\n"
-                "Code:\nprint(5 + 'hello')"
-            ))
-        ]
-    })
+    res = app.invoke(
+        {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "Error: TypeError: unsupported operand type(s) for +: 'int' and 'str'\n\n"
+                        "Code:\nprint(5 + 'hello')"
+                    )
+                )
+            ]
+        }
+    )
 
     # Always print something meaningful
     last = res["messages"][-1]
     text = _as_text(last)
     print(text if text.strip() else "[empty reply]")
+
 
 if __name__ == "__main__":
     run_debugger_graph()

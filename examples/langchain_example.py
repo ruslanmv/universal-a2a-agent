@@ -19,6 +19,7 @@ from a2a_universal.provider_api import langchain_llm
 # 2) Use the built-in Universal A2A tool (already a valid LangChain Tool)
 from a2a_universal.adapters.langchain_tool import a2a_hello
 
+
 def main() -> None:
     # Load WATSONX_* from .env (project root)
     load_dotenv()
@@ -35,8 +36,8 @@ def main() -> None:
 
     # Assemble a simple ReAct-style chat agent
     agent = initialize_agent(
-        tools=[a2a_hello],                               # Universal A2A tool
-        llm=llm,                                         # Watsonx chat model
+        tools=[a2a_hello],  # Universal A2A tool
+        llm=llm,  # Watsonx chat model
         agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
         handle_parsing_errors=True,
@@ -45,6 +46,7 @@ def main() -> None:
     # Demo: ask the agent to use the tool
     out = agent.invoke({"input": "Use the a2a_hello tool to say 'ping'."})
     print("\n[Final Answer]:", out.get("output", ""))
+
 
 if __name__ == "__main__":
     main()

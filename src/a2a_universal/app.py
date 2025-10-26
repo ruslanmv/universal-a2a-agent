@@ -40,6 +40,7 @@ Handler = Union[Callable[[str], str], Callable[[str], Awaitable[str]]]
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_coro(fn: Handler) -> bool:
     # type: ignore[arg-type]
     return asyncio.iscoroutinefunction(fn)  # type: ignore
@@ -59,7 +60,9 @@ def _diag_headers(rid: str) -> Dict[str, str]:
 def _require_json(req: Request) -> None:
     ctype = (req.headers.get("content-type") or "").lower()
     if "application/json" not in ctype:
-        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+        raise HTTPException(
+            status_code=415, detail="Content-Type must be application/json"
+        )
 
 
 def _extract_text_from_a2a(body: Dict[str, Any]) -> str:
@@ -75,7 +78,11 @@ def _extract_text_from_a2a(body: Dict[str, Any]) -> str:
             if isinstance(t, str) and t.strip():
                 return t.strip()
     # Fallback: some clients might send content at top-level (non-standard)
-    text = (msg.get("content") or "").strip() if isinstance(msg.get("content"), str) else ""
+    text = (
+        (msg.get("content") or "").strip()
+        if isinstance(msg.get("content"), str)
+        else ""
+    )
     return text
 
 
@@ -125,6 +132,7 @@ async def _call_handler(handler: Handler, text: str) -> str:
 # Public factory
 # ---------------------------------------------------------------------------
 
+
 def build(
     handler: Handler,
     *,
@@ -135,7 +143,9 @@ def build(
     root_path: Optional[str] = None,  # helpful when served behind a sub-path gateway
     preferred_transport: str = "JSONRPC",
     skills: Optional[List[Dict[str, Any]]] = None,
-    readiness_check: Optional[Callable[[], bool]] = None,  # simple hook; return True if ready
+    readiness_check: Optional[
+        Callable[[], bool]
+    ] = None,  # simple hook; return True if ready
 ) -> FastAPI:
     """
     Build a FastAPI app exposing a production-friendly A2A surface around a single text handler.
@@ -186,7 +196,9 @@ def build(
             except Exception:
                 ok = False
         payload = {"status": "ready" if ok else "not_ready"}
-        return JSONResponse(payload, status_code=200 if ok else 503, headers=_diag_headers(rid))
+        return JSONResponse(
+            payload, status_code=200 if ok else 503, headers=_diag_headers(rid)
+        )
 
     @app.get("/.well-known/agent-card.json", tags=["Discovery"])
     async def _agent_card(req: Request) -> JSONResponse:
@@ -234,7 +246,9 @@ def build(
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
         if not (isinstance(body, dict) and body.get("method") == "message/send"):
-            raise HTTPException(status_code=400, detail="Unsupported A2A payload structure")
+            raise HTTPException(
+                status_code=400, detail="Unsupported A2A payload structure"
+            )
 
         params = body.get("params") or {}
         user_msg = params.get("message") or {}
@@ -259,7 +273,11 @@ def build(
         except Exception:
             # Parse error
             return JSONResponse(
-                {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}},
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "Parse error"},
+                },
                 headers=_diag_headers(rid),
             )
 
@@ -267,7 +285,11 @@ def build(
         method = body.get("method")
         if method != "message/send":
             return JSONResponse(
-                {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "Method not found"}},
+                {
+                    "jsonrpc": "2.0",
+                    "id": mid,
+                    "error": {"code": -32601, "message": "Method not found"},
+                },
                 headers=_diag_headers(rid),
             )
 
@@ -285,12 +307,18 @@ def build(
             )
         except Exception as e:  # safety
             return JSONResponse(
-                {"jsonrpc": "2.0", "id": mid, "error": {"code": -32000, "message": f"Server error: {e}"}},
+                {
+                    "jsonrpc": "2.0",
+                    "id": mid,
+                    "error": {"code": -32000, "message": f"Server error: {e}"},
+                },
                 headers=_diag_headers(rid),
             )
 
     @app.post("/openai/v1/chat/completions", tags=["OpenAI"])
-    async def _openai_chat(req: Request, body: Dict[str, Any] = Body(...)) -> JSONResponse:
+    async def _openai_chat(
+        req: Request, body: Dict[str, Any] = Body(...)
+    ) -> JSONResponse:
         """
         OpenAI-compatible chat completions (minimal subset).
         Input:

@@ -39,8 +39,6 @@ Set behavior via environment (see README for full list):
 
 from __future__ import annotations
 
-from typing import Optional
-
 # ---------------------------------------------------------------------------
 # Version resolution (robust across normal and editable installs)
 # ---------------------------------------------------------------------------
@@ -98,16 +96,19 @@ except Exception as _e:  # pragma: no cover
             f"Underlying error: {_runner_import_error!r}"
         )
 
-    run = _runner_stub            # type: ignore
-    compose = _runner_stub        # type: ignore
-    mount = _runner_stub          # type: ignore
+    run = _runner_stub  # type: ignore
+    compose = _runner_stub  # type: ignore
+    mount = _runner_stub  # type: ignore
 
 
 __all__ = [
     # version
-    "__version__", "get_version",
+    "__version__",
+    "get_version",
     # client
     "A2AClient",
     # runner helpers
-    "run", "compose", "mount",
+    "run",
+    "compose",
+    "mount",
 ]

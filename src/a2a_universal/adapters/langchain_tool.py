@@ -58,6 +58,7 @@ if os.getenv("A2A_TOOL_DEBUG", "").strip().lower() in {"1", "true", "yes", "y"}:
 # Env helpers
 # ---------------------------------------------------------------------------
 
+
 def _bool_env(name: str, default: bool = False) -> bool:
     v = os.getenv(name)
     if v is None:
@@ -124,7 +125,9 @@ def _preflight_readyz(base_url: str, *, context: str = "LangChain tool") -> None
                         context,
                     )
             else:
-                _LOG.debug("Preflight /readyz returned HTTP %s; continuing.", r.status_code)
+                _LOG.debug(
+                    "Preflight /readyz returned HTTP %s; continuing.", r.status_code
+                )
         except Exception as e:  # noqa: BLE001
             _LOG.debug("Preflight /readyz skipped due to error: %r", e)
         finally:
@@ -134,6 +137,7 @@ def _preflight_readyz(base_url: str, *, context: str = "LangChain tool") -> None
 # ---------------------------------------------------------------------------
 # Core callable (plain function you can also import & use directly)
 # ---------------------------------------------------------------------------
+
 
 def a2a_call(text: str) -> str:
     """
@@ -189,7 +193,9 @@ def a2a_call(text: str) -> str:
 
             # If server returned a framework error string, log and return a concise hint.
             if isinstance(resp, str) and resp.startswith("[crewai error]"):
-                _LOG.warning("A2A server reported CrewAI error; ensure AGENT_FRAMEWORK=native on the server.")
+                _LOG.warning(
+                    "A2A server reported CrewAI error; ensure AGENT_FRAMEWORK=native on the server."
+                )
                 return "Server is running CrewAI framework; set AGENT_FRAMEWORK=native on the A2A server."
 
             # Defensive: ensure we return a string
@@ -220,6 +226,7 @@ def a2a_call(text: str) -> str:
 #   - Single input param (text) to be compatible with Chat agents.
 #   - `return_direct=False` so the output flows back through the agent.
 # ---------------------------------------------------------------------------
+
 
 @tool("a2a_hello", return_direct=False)
 def a2a_hello(text: str) -> str:

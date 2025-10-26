@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Optional
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "echo"
     name = "Echo"

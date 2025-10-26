@@ -3,11 +3,15 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
+
 @app.get("/hello")
-def hello(): return {"hi": "from my app under /app"}
+def hello():
+    return {"hi": "from my app under /app"}
+
 
 async def handle_text(text: str) -> str:
     return f"Hello from my custom agent. You said: {text}"
+
 
 if __name__ == "__main__":
     a2a.run(
@@ -17,5 +21,6 @@ if __name__ == "__main__":
         handler=handle_text,
         name="Tiny Agent",
         description="One function → full A2A",
-        host="0.0.0.0", port=8080
+        host="0.0.0.0",
+        port=8080,
     )

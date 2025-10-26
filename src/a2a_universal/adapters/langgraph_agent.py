@@ -59,6 +59,7 @@ except Exception:  # pragma: no cover - only used on certain versions
     class MessagesState(TypedDict):  # type: ignore[no-redef]
         messages: Annotated[List[AnyMessage], add_messages]
 
+
 from ..client import A2AClient
 
 __all__ = ["A2AAgentNode", "MessagesState"]
@@ -71,6 +72,7 @@ if os.getenv("A2A_NODE_DEBUG", "").strip().lower() in {"1", "true", "yes", "y"}:
 
 
 # --- Env helpers -----------------------------------------------------------------
+
 
 def _bool_env(name: str, default: bool = False) -> bool:
     v = os.getenv(name)
@@ -105,6 +107,7 @@ def _base_url(default: str = "http://localhost:8000") -> str:
 
 # --- Message helpers --------------------------------------------------------------
 
+
 def _last_user_text(messages: List[Any] | List[BaseMessage]) -> str:
     """
     Extract the most relevant user text from LangChain/BaseMessage or dict-style messages.
@@ -128,7 +131,11 @@ def _last_user_text(messages: List[Any] | List[BaseMessage]) -> str:
                     if isinstance(content, list):
                         # [{"type":"text","text":"..."}] etc.
                         for part in content:
-                            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                            if (
+                                isinstance(part, dict)
+                                and part.get("type") == "text"
+                                and part.get("text")
+                            ):
                                 return str(part["text"]).strip()
         except Exception:
             continue
@@ -141,6 +148,7 @@ def _last_user_text(messages: List[Any] | List[BaseMessage]) -> str:
 
 
 # --- Node ------------------------------------------------------------------------
+
 
 class A2AAgentNode:
     """LangGraph node that wraps the Universal A2A service.
@@ -159,20 +167,36 @@ class A2AAgentNode:
         offline_fallback: Optional[bool] = None,
     ) -> None:
         # Configuration (env-driven with sane defaults)
-        self.base_url = (base_url or _base_url())
-        self.use_jsonrpc = (use_jsonrpc if use_jsonrpc is not None else _bool_env("A2A_USE_JSONRPC", False))
-        self.timeout_sec = (timeout_sec if timeout_sec is not None else _float_env("A2A_NODE_TIMEOUT_SEC", 30.0))
-        self.retries = (retries if retries is not None else _int_env("A2A_NODE_RETRIES", 2))
-        self.offline_fallback = (offline_fallback
-                                 if offline_fallback is not None
-                                 else _bool_env("A2A_OFFLINE_FALLBACK", False))
+        self.base_url = base_url or _base_url()
+        self.use_jsonrpc = (
+            use_jsonrpc
+            if use_jsonrpc is not None
+            else _bool_env("A2A_USE_JSONRPC", False)
+        )
+        self.timeout_sec = (
+            timeout_sec
+            if timeout_sec is not None
+            else _float_env("A2A_NODE_TIMEOUT_SEC", 30.0)
+        )
+        self.retries = (
+            retries if retries is not None else _int_env("A2A_NODE_RETRIES", 2)
+        )
+        self.offline_fallback = (
+            offline_fallback
+            if offline_fallback is not None
+            else _bool_env("A2A_OFFLINE_FALLBACK", False)
+        )
 
         # Client: keep constructor minimal to avoid coupling to client kwargs that might not exist.
         self.client = A2AClient(self.base_url)
 
         _LOG.info(
             "A2AAgentNode initialized base_url=%s jsonrpc=%s retries=%d timeout=%.1fs offline_fallback=%s",
-            self.base_url, self.use_jsonrpc, self.retries, self.timeout_sec, self.offline_fallback,
+            self.base_url,
+            self.use_jsonrpc,
+            self.retries,
+            self.timeout_sec,
+            self.offline_fallback,
         )
 
     def __call__(self, state: MessagesState) -> Dict[str, Any]:
@@ -211,14 +235,28 @@ class A2AAgentNode:
                     return {"messages": [AIMessage(content=concise)]}
 
                 # Defensive: ensure a string; client should already do this.
-                text = reply if isinstance(reply, str) else (str(reply) if reply is not None else "")
+                text = (
+                    reply
+                    if isinstance(reply, str)
+                    else (str(reply) if reply is not None else "")
+                )
                 return {"messages": [AIMessage(content=text)]}
             except httpx.HTTPError as e:
                 last_exc = e
-                _LOG.warning("A2A HTTP error (%s) on attempt %d/%d", e.__class__.__name__, attempt + 1, self.retries + 1)
+                _LOG.warning(
+                    "A2A HTTP error (%s) on attempt %d/%d",
+                    e.__class__.__name__,
+                    attempt + 1,
+                    self.retries + 1,
+                )
             except Exception as e:  # noqa: BLE001
                 last_exc = e
-                _LOG.warning("A2A call failed (%s) on attempt %d/%d", e.__class__.__name__, attempt + 1, self.retries + 1)
+                _LOG.warning(
+                    "A2A call failed (%s) on attempt %d/%d",
+                    e.__class__.__name__,
+                    attempt + 1,
+                    self.retries + 1,
+                )
 
             # Backoff before retrying
             if attempt < self.retries:
@@ -227,9 +265,16 @@ class A2AAgentNode:
 
         # All attempts failed
         if self.offline_fallback:
-            _LOG.error("A2A call failed after %d attempts; returning offline fallback. Last error: %r",
-                       self.retries + 1, last_exc)
-            msg = f"Hello (offline), you said: {user_text}" if user_text else "Hello, World!"
+            _LOG.error(
+                "A2A call failed after %d attempts; returning offline fallback. Last error: %r",
+                self.retries + 1,
+                last_exc,
+            )
+            msg = (
+                f"Hello (offline), you said: {user_text}"
+                if user_text
+                else "Hello, World!"
+            )
             return {"messages": [AIMessage(content=msg)]}
 
         # Propagate a clear error message into the graph (no exception to keep graph running)

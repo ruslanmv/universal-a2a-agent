@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-a2a-agent"
-version = "0.1.2"
+version = "0.1.3"
 description = "Framework-agnostic A2A agent with pluggable Providers & Frameworks (MCP, LangChain, LangGraph, CrewAI, BeeAI, AutoGen, watsonx.ai)"
 readme = "README.md"
 authors = [{ name = "Ruslan Magana Vsevolodovna", email = "contact@ruslanmv.com" }]
@@ -17,7 +17,9 @@ dependencies = [
   "httpx>=0.27",
   "pydantic-settings>=2.3",
   "typer>=0.12",
-  "python-dotenv>=1.0"
+  "python-dotenv>=1.0",
+  "requests>=2.31",        # for A2A adapters calling /knowledge, etc.
+  "structlog>=24.2"        # <-- ADDED (fixes ModuleNotFoundError: structlog)
 ]
 
 [project.optional-dependencies]
@@ -26,6 +28,7 @@ langchain = [
   "langchain>=0.2",
   "langchain-community>=0.2"
 ]
+
 # Native LangGraph extras (MessagesState + LC message types)
 langgraph = [
   "langgraph>=0.2",
@@ -33,13 +36,31 @@ langgraph = [
   "langchain>=0.2",
   "langchain-community>=0.2"
 ]
-crewai = ["crewai>=0.51", "crewai-tools>=0.1.0"]
+
+# CrewAI adapters/tools
+crewai = [
+  "crewai>=0.76.0",
+  "crewai-tools>=0.31.0"
+]
+
 autogen = ["pyautogen>=0.2"]
 beeai = ["beeai-framework[a2a]>=0.1.44"]
 
+# --- RAG bundle for /knowledge endpoints (retriever + vector DBs + embeddings) ---
+rag = [
+  "crewai-tools>=0.31.0",   # RagTool
+  "chromadb>=0.5.5",        # default in-process vector DB
+  "qdrant-client>=1.9.0",   # optional external vector DB (A2A_VDB=qdrant)
+  "openai>=1.0"             # simple embeddings provider (set OPENAI_API_KEY)
+]
+
 # --- Provider plugins ---
 openai = ["openai>=1.0"]
-watsonx = ["ibm-watsonx-ai>=1.1.15"]
+watsonx = [
+  "ibm-watsonx-ai>=1.1.15",
+  "langchain-ibm>=0.1.12",
+  "langchain>=0.2,<0.3"
+]
 anthropic = ["anthropic>=0.30"]
 gemini = ["google-generativeai>=0.7"]
 azure_openai = ["openai>=1.0"]
@@ -55,24 +76,26 @@ providers-all = [
   "boto3>=1.34",
   "botocore>=1.34"
 ]
+
 frameworks-all = [
   "langgraph>=0.2",
   "langchain-core>=0.2",
   "langchain>=0.2",
   "langchain-community>=0.2",
-  "crewai>=0.51",
-  "crewai-tools>=0.1.0",
+  "crewai>=0.76.0",
+  "crewai-tools>=0.31.0",
   "pyautogen>=0.2",
   "beeai-framework[a2a]>=0.1.44"
 ]
+
 all = [
   # frameworks
   "langgraph>=0.2",
   "langchain-core>=0.2",
   "langchain>=0.2",
   "langchain-community>=0.2",
-  "crewai>=0.51",
-  "crewai-tools>=0.1.0",
+  "crewai>=0.76.0",
+  "crewai-tools>=0.31.0",
   "pyautogen>=0.2",
   "beeai-framework[a2a]>=0.1.44",
   # providers
@@ -81,7 +104,10 @@ all = [
   "anthropic>=0.30",
   "google-generativeai>=0.7",
   "boto3>=1.34",
-  "botocore>=1.34"
+  "botocore>=1.34",
+  # vector DBs (RAG)
+  "chromadb>=0.5.5",
+  "qdrant-client>=1.9.0"
 ]
 
 [project.scripts]

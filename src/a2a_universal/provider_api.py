@@ -40,8 +40,8 @@ from .providers import (  # type: ignore
     ProviderBase,
     NotReadyProvider,
     build_provider,
-    _REGISTRY,   # internal registry; safe to use within package
-    _ALIASES,    # alias map; safe to use within package
+    _REGISTRY,  # internal registry; safe to use within package
+    _ALIASES,  # alias map; safe to use within package
 )
 
 __all__ = [
@@ -140,6 +140,7 @@ def framework_id(default: str = "crewai") -> str:
 # General LLM factory (auto from env)
 # -----------------------------------------------------------------------------
 
+
 def llm():
     """
     General, framework-agnostic LLM factory chosen automatically via env:
@@ -179,10 +180,13 @@ def llm():
 # Shared helpers
 # -----------------------------------------------------------------------------
 
+
 def _require_env(env: Dict[str, Optional[str]], keys: list[str]) -> None:
     missing = [k for k in keys if not env.get(k)]
     if missing:
-        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+        raise RuntimeError(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
 
 
 def _active_provider_ready() -> ProviderBase:
@@ -191,7 +195,9 @@ def _active_provider_ready() -> ProviderBase:
     if not pid:
         raise RuntimeError("No provider id resolved from provider().")
     if not getattr(p, "ready", False):
-        raise RuntimeError(f"Provider '{pid}' not ready: {getattr(p, 'reason', 'unknown')}")
+        raise RuntimeError(
+            f"Provider '{pid}' not ready: {getattr(p, 'reason', 'unknown')}"
+        )
     return p
 
 
@@ -265,10 +271,14 @@ def crew_llm() -> "_CrewLLM":
     if pid in ("azure_openai", "azure-openai", "azure"):
         env = {
             # LiteLLM commonly uses these names; align your .env accordingly
-            "AZURE_API_KEY": os.getenv("AZURE_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY"),
-            "AZURE_API_BASE": os.getenv("AZURE_API_BASE") or os.getenv("AZURE_OPENAI_API_BASE"),
-            "AZURE_API_VERSION": os.getenv("AZURE_API_VERSION") or os.getenv("AZURE_OPENAI_API_VERSION"),
-            "AZURE_DEPLOYMENT": os.getenv("AZURE_DEPLOYMENT") or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            "AZURE_API_KEY": os.getenv("AZURE_API_KEY")
+            or os.getenv("AZURE_OPENAI_API_KEY"),
+            "AZURE_API_BASE": os.getenv("AZURE_API_BASE")
+            or os.getenv("AZURE_OPENAI_API_BASE"),
+            "AZURE_API_VERSION": os.getenv("AZURE_API_VERSION")
+            or os.getenv("AZURE_OPENAI_API_VERSION"),
+            "AZURE_DEPLOYMENT": os.getenv("AZURE_DEPLOYMENT")
+            or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
         }
         _require_env(env, ["AZURE_API_KEY", "AZURE_API_BASE", "AZURE_DEPLOYMENT"])
         model = env["AZURE_DEPLOYMENT"]
@@ -314,6 +324,7 @@ make_crewai_llm_from_providers = crew_llm
 # LangChain / LangGraph adapter (returns a ChatModel)
 # -----------------------------------------------------------------------------
 
+
 def langchain_llm():
     """
     Return a LangChain ChatModel configured for the active provider.
@@ -351,25 +362,42 @@ def langchain_llm():
         try:
             from langchain_openai import ChatOpenAI  # type: ignore
         except Exception as e:  # pragma: no cover
-            raise RuntimeError("Install `langchain-openai`: `pip install langchain-openai`.") from e
+            raise RuntimeError(
+                "Install `langchain-openai`: `pip install langchain-openai`."
+            ) from e
         env = {"OPENAI_API_KEY": os.getenv("OPENAI_API_KEY")}
         _require_env(env, ["OPENAI_API_KEY"])
         model_id = os.getenv("MODEL_ID", "gpt-4o-mini")
-        return ChatOpenAI(api_key=env["OPENAI_API_KEY"], model=model_id, temperature=0.0)
+        return ChatOpenAI(
+            api_key=env["OPENAI_API_KEY"], model=model_id, temperature=0.0
+        )
 
     # Azure OpenAI
     if pid in ("azure_openai", "azure-openai", "azure"):
         try:
             from langchain_openai import AzureChatOpenAI  # type: ignore
         except Exception as e:  # pragma: no cover
-            raise RuntimeError("Install `langchain-openai`: `pip install langchain-openai`.") from e
+            raise RuntimeError(
+                "Install `langchain-openai`: `pip install langchain-openai`."
+            ) from e
         env = {
-            "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_API_KEY"),
-            "AZURE_OPENAI_API_BASE": os.getenv("AZURE_OPENAI_API_BASE") or os.getenv("AZURE_API_BASE"),
-            "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AZURE_API_VERSION", "2024-05-01-preview"),
-            "AZURE_OPENAI_DEPLOYMENT_NAME": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AZURE_DEPLOYMENT"),
+            "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY")
+            or os.getenv("AZURE_API_KEY"),
+            "AZURE_OPENAI_API_BASE": os.getenv("AZURE_OPENAI_API_BASE")
+            or os.getenv("AZURE_API_BASE"),
+            "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION")
+            or os.getenv("AZURE_API_VERSION", "2024-05-01-preview"),
+            "AZURE_OPENAI_DEPLOYMENT_NAME": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+            or os.getenv("AZURE_DEPLOYMENT"),
         }
-        _require_env(env, ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_API_BASE", "AZURE_OPENAI_DEPLOYMENT_NAME"])
+        _require_env(
+            env,
+            [
+                "AZURE_OPENAI_API_KEY",
+                "AZURE_OPENAI_API_BASE",
+                "AZURE_OPENAI_DEPLOYMENT_NAME",
+            ],
+        )
         return AzureChatOpenAI(
             openai_api_key=env["AZURE_OPENAI_API_KEY"],
             azure_endpoint=env["AZURE_OPENAI_API_BASE"],
@@ -383,22 +411,30 @@ def langchain_llm():
         try:
             from langchain_anthropic import ChatAnthropic  # type: ignore
         except Exception as e:  # pragma: no cover
-            raise RuntimeError("Install `langchain-anthropic`: `pip install langchain-anthropic`.") from e
+            raise RuntimeError(
+                "Install `langchain-anthropic`: `pip install langchain-anthropic`."
+            ) from e
         env = {"ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY")}
         _require_env(env, ["ANTHROPIC_API_KEY"])
         model_id = os.getenv("MODEL_ID", "claude-3-5-sonnet-latest")
-        return ChatAnthropic(api_key=env["ANTHROPIC_API_KEY"], model=model_id, temperature=0.0)
+        return ChatAnthropic(
+            api_key=env["ANTHROPIC_API_KEY"], model=model_id, temperature=0.0
+        )
 
     # Google Gemini
     if pid in ("gemini", "google"):
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
         except Exception as e:  # pragma: no cover
-            raise RuntimeError("Install `langchain-google-genai`: `pip install langchain-google-genai`.") from e
+            raise RuntimeError(
+                "Install `langchain-google-genai`: `pip install langchain-google-genai`."
+            ) from e
         env = {"GEMINI_API_KEY": os.getenv("GEMINI_API_KEY")}
         _require_env(env, ["GEMINI_API_KEY"])
         model_id = os.getenv("MODEL_ID", "gemini-1.5-pro")
-        return ChatGoogleGenerativeAI(google_api_key=env["GEMINI_API_KEY"], model=model_id, temperature=0.0)
+        return ChatGoogleGenerativeAI(
+            google_api_key=env["GEMINI_API_KEY"], model=model_id, temperature=0.0
+        )
 
     # Ollama (local)
     if pid == "ollama":
@@ -422,10 +458,12 @@ def langchain_llm():
     if pid == "bedrock":
         try:
             from langchain_aws import ChatBedrock  # type: ignore
+
             use_aws = True
         except Exception:
             try:
                 from langchain_community.chat_models import BedrockChat as ChatBedrock  # type: ignore
+
                 use_aws = False
             except Exception as e:  # pragma: no cover
                 raise RuntimeError(
@@ -453,6 +491,7 @@ def langgraph_llm():
 # AutoGen adapter (returns config dict)
 # -----------------------------------------------------------------------------
 
+
 def autogen_llm() -> Dict[str, Any]:
     """
     Return a config dict suitable for `pyautogen` agent initialization.
@@ -466,71 +505,94 @@ def autogen_llm() -> Dict[str, Any]:
         env = {"OPENAI_API_KEY": os.getenv("OPENAI_API_KEY")}
         _require_env(env, ["OPENAI_API_KEY"])
         model_id = os.getenv("MODEL_ID", "gpt-4o-mini")
-        cfg["config_list"] = [{
-            "provider": "openai",
-            "model": model_id,
-            "api_key": env["OPENAI_API_KEY"],
-        }]
+        cfg["config_list"] = [
+            {
+                "provider": "openai",
+                "model": model_id,
+                "api_key": env["OPENAI_API_KEY"],
+            }
+        ]
         return cfg
 
     if pid in ("azure_openai", "azure-openai", "azure"):
         env = {
-            "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_API_KEY"),
-            "AZURE_OPENAI_API_BASE": os.getenv("AZURE_OPENAI_API_BASE") or os.getenv("AZURE_API_BASE"),
-            "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AZURE_API_VERSION", "2024-05-01-preview"),
-            "AZURE_OPENAI_DEPLOYMENT_NAME": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AZURE_DEPLOYMENT"),
+            "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY")
+            or os.getenv("AZURE_API_KEY"),
+            "AZURE_OPENAI_API_BASE": os.getenv("AZURE_OPENAI_API_BASE")
+            or os.getenv("AZURE_API_BASE"),
+            "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION")
+            or os.getenv("AZURE_API_VERSION", "2024-05-01-preview"),
+            "AZURE_OPENAI_DEPLOYMENT_NAME": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+            or os.getenv("AZURE_DEPLOYMENT"),
         }
-        _require_env(env, ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_API_BASE", "AZURE_OPENAI_DEPLOYMENT_NAME"])
-        cfg["config_list"] = [{
-            "provider": "azure_openai",
-            "model": env["AZURE_OPENAI_DEPLOYMENT_NAME"],
-            "api_key": env["AZURE_OPENAI_API_KEY"],
-            "api_base": env["AZURE_OPENAI_API_BASE"],
-            "api_version": env["AZURE_OPENAI_API_VERSION"],
-        }]
+        _require_env(
+            env,
+            [
+                "AZURE_OPENAI_API_KEY",
+                "AZURE_OPENAI_API_BASE",
+                "AZURE_OPENAI_DEPLOYMENT_NAME",
+            ],
+        )
+        cfg["config_list"] = [
+            {
+                "provider": "azure_openai",
+                "model": env["AZURE_OPENAI_DEPLOYMENT_NAME"],
+                "api_key": env["AZURE_OPENAI_API_KEY"],
+                "api_base": env["AZURE_OPENAI_API_BASE"],
+                "api_version": env["AZURE_OPENAI_API_VERSION"],
+            }
+        ]
         return cfg
 
     if pid in ("gemini", "google"):
         env = {"GEMINI_API_KEY": os.getenv("GEMINI_API_KEY")}
         _require_env(env, ["GEMINI_API_KEY"])
         model_id = os.getenv("MODEL_ID", "gemini-1.5-pro")
-        cfg["config_list"] = [{
-            "provider": "gemini",
-            "model": model_id,
-            "api_key": env["GEMINI_API_KEY"],
-        }]
+        cfg["config_list"] = [
+            {
+                "provider": "gemini",
+                "model": model_id,
+                "api_key": env["GEMINI_API_KEY"],
+            }
+        ]
         return cfg
 
     if pid == "ollama":
         base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         model_id = os.getenv("MODEL_ID", "llama3.1")
-        cfg["config_list"] = [{
-            "provider": "ollama",
-            "model": model_id,
-            "base_url": base,
-        }]
+        cfg["config_list"] = [
+            {
+                "provider": "ollama",
+                "model": model_id,
+                "base_url": base,
+            }
+        ]
         return cfg
 
     if pid in ("anthropic", "claude"):
         env = {"ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY")}
         _require_env(env, ["ANTHROPIC_API_KEY"])
         model_id = os.getenv("MODEL_ID", "claude-3-5-sonnet-latest")
-        cfg["config_list"] = [{
-            "provider": "anthropic",
-            "model": model_id,
-            "api_key": env["ANTHROPIC_API_KEY"],
-        }]
+        cfg["config_list"] = [
+            {
+                "provider": "anthropic",
+                "model": model_id,
+                "api_key": env["ANTHROPIC_API_KEY"],
+            }
+        ]
         return cfg
 
     if pid == "bedrock":
         region = os.getenv("AWS_REGION")
         _require_env({"AWS_REGION": region}, ["AWS_REGION"])
         model_id = os.getenv("MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
-        cfg["config_list"] = [{
-            "provider": "bedrock",
-            "model": model_id,
-            "region_name": region,
-        }]
+        cfg["config_list"] = [
+            {
+                "provider": "bedrock",
+                "model": model_id,
+                "region_name": region,
+            }
+        ]
         return cfg
 
     if pid == "watsonx":
@@ -545,6 +607,7 @@ def autogen_llm() -> Dict[str, Any]:
 # -----------------------------------------------------------------------------
 # Native adapter: small `.call()` wrapper over ProviderBase
 # -----------------------------------------------------------------------------
+
 
 class _NativeLLMAdapter:
     """Tiny adapter exposing `.call()` and delegating to ProviderBase.generate()."""
@@ -569,6 +632,7 @@ def native_llm() -> _NativeLLMAdapter:
 # -----------------------------------------------------------------------------
 # IBM watsonx Orchestrate (placeholder)
 # -----------------------------------------------------------------------------
+
 
 def orchestrate_llm():
     """

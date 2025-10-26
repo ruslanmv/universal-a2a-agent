@@ -2,8 +2,10 @@
 from a2a_universal.app import build
 from a2a_universal import run
 
+
 async def handle_text(text: str) -> str:
     return f"Hello from my custom agent. You said: {text[:200]}"
+
 
 # Build a full A2A app from a single function
 app = build(

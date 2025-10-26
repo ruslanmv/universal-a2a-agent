@@ -5,6 +5,7 @@ import httpx
 
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "ollama"
     name = "Ollama"

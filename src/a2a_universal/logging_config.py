@@ -100,6 +100,4 @@ def configure_logging():
     logging.getLogger("ibm_watsonx_ai").setLevel(logging.WARNING)
 
     # Log the current logging mode for clarity on startup.
-    structlog.get_logger("a2a.logging").info(
-        "Logging configured", mode=app_env
-    )
+    structlog.get_logger("a2a.logging").info("Logging configured", mode=app_env)

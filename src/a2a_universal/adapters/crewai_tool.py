@@ -39,12 +39,17 @@ _DEFAULT_TIMEOUT_SECONDS = 30.0
 
 # ------------------------------ Schemas --------------------------------------
 
+
 class A2AInput(BaseModel):
     """Input schema for the tool."""
-    prompt: str = Field(..., description="User request or instruction for the A2A skill.")
+
+    prompt: str = Field(
+        ..., description="User request or instruction for the A2A skill."
+    )
 
 
 # ------------------------------- Tool ----------------------------------------
+
 
 class A2ATool(BaseTool):
     """
@@ -81,6 +86,7 @@ class A2ATool(BaseTool):
     # ----------------------- Pydantic validators -----------------------------
 
     if _PYDANTIC_V2:
+
         @model_validator(mode="after")  # type: ignore[no-redef]
         def _default_skill(self) -> "A2ATool":
             """If 'skill' isn't provided, default it to the tool's name."""
@@ -90,7 +96,9 @@ class A2ATool(BaseTool):
             self.base_url = self.base_url.rstrip("/")
             self.endpoint_path = "/" + self.endpoint_path.lstrip("/")
             return self
+
     else:  # Pydantic v1 compatibility
+
         @root_validator(pre=False)  # type: ignore[misc]
         def _default_skill_v1(cls, values: Dict[str, Any]) -> Dict[str, Any]:
             skill = values.get("skill")
@@ -98,7 +106,9 @@ class A2ATool(BaseTool):
             if not skill and name:
                 values["skill"] = name
             base_url = (values.get("base_url") or _DEFAULT_BASE_URL).rstrip("/")
-            endpoint = "/" + (values.get("endpoint_path") or _DEFAULT_ENDPOINT_PATH).lstrip("/")
+            endpoint = "/" + (
+                values.get("endpoint_path") or _DEFAULT_ENDPOINT_PATH
+            ).lstrip("/")
             values["base_url"] = base_url
             values["endpoint_path"] = endpoint
             return values
@@ -135,7 +145,7 @@ class A2ATool(BaseTool):
         Try to extract the most useful text from a few likely shapes.
         """
         # Preferred A2A message.parts[text]
-        message = (data.get("message") or {})
+        message = data.get("message") or {}
         for part in message.get("parts", []):
             if part.get("type") == "text":
                 text = part.get("text")
@@ -181,7 +191,9 @@ class A2ATool(BaseTool):
             )
             response.raise_for_status()
         except httpx.TimeoutException as exc:
-            return f"[A2A call failed: timeout after {self.request_timeout:.1f}s: {exc}]"
+            return (
+                f"[A2A call failed: timeout after {self.request_timeout:.1f}s: {exc}]"
+            )
         except httpx.HTTPStatusError as exc:
             # Include status code and a short response excerpt for diagnostics
             text_excerpt = (exc.response.text or "")[:512]
@@ -216,7 +228,9 @@ class A2ATool(BaseTool):
                 )
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
-            return f"[A2A call failed: timeout after {self.request_timeout:.1f}s: {exc}]"
+            return (
+                f"[A2A call failed: timeout after {self.request_timeout:.1f}s: {exc}]"
+            )
         except httpx.HTTPStatusError as exc:
             text_excerpt = (exc.response.text or "")[:512]
             return f"[A2A call failed: HTTP {exc.response.status_code}: {text_excerpt}]"

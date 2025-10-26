@@ -4,6 +4,7 @@ import os
 
 from ..providers import ProviderBase
 
+
 class Provider(ProviderBase):
     id = "openai"
     name = "OpenAI"
@@ -20,6 +21,7 @@ class Provider(ProviderBase):
         # Try new SDK (>=1.0)
         try:
             from openai import OpenAI  # type: ignore
+
             self._client = OpenAI(api_key=api_key)
             self._mode = "new"
             self.ready = True
@@ -30,6 +32,7 @@ class Provider(ProviderBase):
         # Try legacy SDK (<1.0)
         try:
             import openai  # type: ignore
+
             openai.api_key = api_key
             self._client = openai
             self._mode = "legacy"

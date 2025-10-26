@@ -1,4 +1,4 @@
-#Beta not integrated yet
+# Beta not integrated yet
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +31,9 @@ def _normalize_base(url: str) -> str:
     return url
 
 
-async def _fetch_json(client: httpx.AsyncClient, url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str], float]:
+async def _fetch_json(
+    client: httpx.AsyncClient, url: str
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], float]:
     t0 = time.perf_counter()
     try:
         r = await client.get(url)
@@ -41,7 +43,9 @@ async def _fetch_json(client: httpx.AsyncClient, url: str) -> Tuple[Optional[Dic
         return None, str(e), (time.perf_counter() - t0) * 1000.0
 
 
-async def _post_json(client: httpx.AsyncClient, url: str, payload: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str], float]:
+async def _post_json(
+    client: httpx.AsyncClient, url: str, payload: Dict[str, Any]
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], float]:
     t0 = time.perf_counter()
     try:
         r = await client.post(url, json=payload)
@@ -51,7 +55,9 @@ async def _post_json(client: httpx.AsyncClient, url: str, payload: Dict[str, Any
         return None, str(e), (time.perf_counter() - t0) * 1000.0
 
 
-async def _discover_card(client: httpx.AsyncClient, base_url: str) -> Tuple[Optional[Dict[str, Any]], List[str], str, float]:
+async def _discover_card(
+    client: httpx.AsyncClient, base_url: str
+) -> Tuple[Optional[Dict[str, Any]], List[str], str, float]:
     """Try standard well-known locations; return first success."""
     base = _normalize_base(base_url)
     candidates = [
@@ -68,7 +74,9 @@ async def _discover_card(client: httpx.AsyncClient, base_url: str) -> Tuple[Opti
     return None, errors, candidates[-1], 0.0
 
 
-async def _check_health(client: httpx.AsyncClient, base_url: str) -> Tuple[str, int, float]:
+async def _check_health(
+    client: httpx.AsyncClient, base_url: str
+) -> Tuple[str, int, float]:
     """Probe common health endpoints. Returns (status, http_code, ms)."""
     base = _normalize_base(base_url)
     candidates = ["/healthz", "/health", "/readyz"]
@@ -94,7 +102,9 @@ def _supports_streaming(card: Dict[str, Any]) -> bool:
     return bool(caps.get("streaming") is True)
 
 
-async def _send_probe_message(client: httpx.AsyncClient, rpc_url: str) -> Tuple[Optional[Dict[str, Any]], List[str], float]:
+async def _send_probe_message(
+    client: httpx.AsyncClient, rpc_url: str
+) -> Tuple[Optional[Dict[str, Any]], List[str], float]:
     """Send a minimal JSON-RPC 'message/send' and validate the response 'event'."""
     payload = {
         "jsonrpc": "2.0",
@@ -126,7 +136,9 @@ async def _send_probe_message(client: httpx.AsyncClient, rpc_url: str) -> Tuple[
     return result, [], elapsed
 
 
-async def verify_a2a(url: str, timeout_sec: float = DEFAULT_TIMEOUT_SEC, verify_tls: bool = VERIFY_TLS) -> Dict[str, Any]:
+async def verify_a2a(
+    url: str, timeout_sec: float = DEFAULT_TIMEOUT_SEC, verify_tls: bool = VERIFY_TLS
+) -> Dict[str, Any]:
     """Verify a single A2A server: card, health, and a probe message."""
     base = _normalize_base(url)
     timeout = httpx.Timeout(timeout_sec, connect=timeout_sec)
@@ -148,7 +160,9 @@ async def verify_a2a(url: str, timeout_sec: float = DEFAULT_TIMEOUT_SEC, verify_
         report["timings_ms"]["card"] = round(card_ms, 2)
 
         if card is None:
-            report["errors"]["card"].extend(card_fetch_errors or ["Agent Card not found."])
+            report["errors"]["card"].extend(
+                card_fetch_errors or ["Agent Card not found."]
+            )
             return report
 
         # 2) Validate Agent Card structure
@@ -170,7 +184,9 @@ async def verify_a2a(url: str, timeout_sec: float = DEFAULT_TIMEOUT_SEC, verify_
         health_status, _, health_ms = await _check_health(client, base)
         report["timings_ms"]["health"] = round(health_ms, 2)
         if health_status != "ok":
-            report["errors"]["health"].append("No healthy /healthz|/health|/readyz endpoint detected.")
+            report["errors"]["health"].append(
+                "No healthy /healthz|/health|/readyz endpoint detected."
+            )
 
         # 4) RPC probe
         rpc_url = _extract_rpc_url(card, base)
@@ -182,12 +198,23 @@ async def verify_a2a(url: str, timeout_sec: float = DEFAULT_TIMEOUT_SEC, verify_
 
         # 5) Determine overall status
         any_errors = report["errors"]["card"] or report["errors"]["rpc"]
-        degraded = (not report["errors"]["card"]) and (not report["errors"]["rpc"]) and report["errors"]["health"]
-        report["status"] = "ok" if not any_errors else ("degraded" if degraded else "fail")
+        degraded = (
+            (not report["errors"]["card"])
+            and (not report["errors"]["rpc"])
+            and report["errors"]["health"]
+        )
+        report["status"] = (
+            "ok" if not any_errors else ("degraded" if degraded else "fail")
+        )
         return report
 
 
-async def verify_a2a_bulk(urls: List[str], concurrency: int = DEFAULT_CONCURRENCY, timeout_sec: float = DEFAULT_TIMEOUT_SEC, verify_tls: bool = VERIFY_TLS) -> List[Dict[str, Any]]:
+async def verify_a2a_bulk(
+    urls: List[str],
+    concurrency: int = DEFAULT_CONCURRENCY,
+    timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+    verify_tls: bool = VERIFY_TLS,
+) -> List[Dict[str, Any]]:
     """Verify many A2A servers concurrently with a bounded semaphore."""
     sem = asyncio.Semaphore(max(1, concurrency))
 

@@ -43,7 +43,9 @@ def _parse_list(value: Any) -> List[str]:
         if not raw:
             return []
         # Try JSON array first
-        if (raw.startswith("[") and raw.endswith("]")) or (raw.startswith("(") and raw.endswith(")")):
+        if (raw.startswith("[") and raw.endswith("]")) or (
+            raw.startswith("(") and raw.endswith(")")
+        ):
             try:
                 data = json.loads(raw.replace("(", "[").replace(")", "]"))
                 if isinstance(data, list):
@@ -81,8 +83,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,   # env names not case-sensitive
-        extra="ignore",         # ignore unknown env keys
+        case_sensitive=False,  # env names not case-sensitive
+        extra="ignore",  # ignore unknown env keys
     )
 
     # ------------------------------------------------------------------
@@ -151,7 +153,9 @@ class Settings(BaseSettings):
     )
     cors_allow_credentials: bool = Field(
         default=False,
-        validation_alias=AliasChoices("CORS_ALLOW_CREDENTIALS", "cors_allow_credentials"),
+        validation_alias=AliasChoices(
+            "CORS_ALLOW_CREDENTIALS", "cors_allow_credentials"
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -159,27 +163,39 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     private_adapter_enabled: bool = Field(
         default=False,
-        validation_alias=AliasChoices("PRIVATE_ADAPTER_ENABLED", "private_adapter_enabled"),
+        validation_alias=AliasChoices(
+            "PRIVATE_ADAPTER_ENABLED", "private_adapter_enabled"
+        ),
     )
     private_adapter_auth_scheme: Literal["NONE", "BEARER", "API_KEY"] = Field(
         default="NONE",
-        validation_alias=AliasChoices("PRIVATE_ADAPTER_AUTH_SCHEME", "private_adapter_auth_scheme"),
+        validation_alias=AliasChoices(
+            "PRIVATE_ADAPTER_AUTH_SCHEME", "private_adapter_auth_scheme"
+        ),
     )
     private_adapter_auth_token: str = Field(
         default="",
-        validation_alias=AliasChoices("PRIVATE_ADAPTER_AUTH_TOKEN", "private_adapter_auth_token"),
+        validation_alias=AliasChoices(
+            "PRIVATE_ADAPTER_AUTH_TOKEN", "private_adapter_auth_token"
+        ),
     )
     private_adapter_input_key: str = Field(
         default="input",
-        validation_alias=AliasChoices("PRIVATE_ADAPTER_INPUT_KEY", "private_adapter_input_key"),
+        validation_alias=AliasChoices(
+            "PRIVATE_ADAPTER_INPUT_KEY", "private_adapter_input_key"
+        ),
     )
     private_adapter_output_key: str = Field(
         default="output",
-        validation_alias=AliasChoices("PRIVATE_ADAPTER_OUTPUT_KEY", "private_adapter_output_key"),
+        validation_alias=AliasChoices(
+            "PRIVATE_ADAPTER_OUTPUT_KEY", "private_adapter_output_key"
+        ),
     )
     private_adapter_trace_key: str = Field(
         default="traceId",
-        validation_alias=AliasChoices("PRIVATE_ADAPTER_TRACE_KEY", "private_adapter_trace_key"),
+        validation_alias=AliasChoices(
+            "PRIVATE_ADAPTER_TRACE_KEY", "private_adapter_trace_key"
+        ),
     )
     private_adapter_path: str = Field(
         default="/enterprise/v1/agent",
@@ -218,64 +234,84 @@ class Settings(BaseSettings):
     # Backward-compatible UPPERCASE properties
     # ------------------------------------------------------------------
     @property
-    def AGENT_NAME(self) -> str: return self.agent_name
+    def AGENT_NAME(self) -> str:
+        return self.agent_name
 
     @property
-    def AGENT_DESCRIPTION(self) -> str: return self.agent_description
+    def AGENT_DESCRIPTION(self) -> str:
+        return self.agent_description
 
     @property
-    def AGENT_VERSION(self) -> str: return self.agent_version
+    def AGENT_VERSION(self) -> str:
+        return self.agent_version
 
     @property
-    def PROTOCOL_VERSION(self) -> str: return self.protocol_version
+    def PROTOCOL_VERSION(self) -> str:
+        return self.protocol_version
 
     @property
-    def A2A_HOST(self) -> str: return self.a2a_host
+    def A2A_HOST(self) -> str:
+        return self.a2a_host
 
     @property
-    def A2A_PORT(self) -> int: return self.a2a_port
+    def A2A_PORT(self) -> int:
+        return self.a2a_port
 
     @property
-    def PUBLIC_URL(self) -> Optional[str]: return self.public_url
+    def PUBLIC_URL(self) -> Optional[str]:
+        return self.public_url
 
     @property
-    def LLM_PROVIDER(self) -> str: return self.llm_provider
+    def LLM_PROVIDER(self) -> str:
+        return self.llm_provider
 
     @property
-    def AGENT_FRAMEWORK(self) -> str: return self.agent_framework
+    def AGENT_FRAMEWORK(self) -> str:
+        return self.agent_framework
 
     @property
-    def CORS_ALLOW_ORIGINS(self) -> List[str]: return self.cors_allow_origins
+    def CORS_ALLOW_ORIGINS(self) -> List[str]:
+        return self.cors_allow_origins
 
     @property
-    def CORS_ALLOW_METHODS(self) -> List[str]: return self.cors_allow_methods
+    def CORS_ALLOW_METHODS(self) -> List[str]:
+        return self.cors_allow_methods
 
     @property
-    def CORS_ALLOW_HEADERS(self) -> List[str]: return self.cors_allow_headers
+    def CORS_ALLOW_HEADERS(self) -> List[str]:
+        return self.cors_allow_headers
 
     @property
-    def CORS_ALLOW_CREDENTIALS(self) -> bool: return self.cors_allow_credentials
+    def CORS_ALLOW_CREDENTIALS(self) -> bool:
+        return self.cors_allow_credentials
 
     @property
-    def PRIVATE_ADAPTER_ENABLED(self) -> bool: return self.private_adapter_enabled
+    def PRIVATE_ADAPTER_ENABLED(self) -> bool:
+        return self.private_adapter_enabled
 
     @property
-    def PRIVATE_ADAPTER_AUTH_SCHEME(self) -> str: return self.private_adapter_auth_scheme
+    def PRIVATE_ADAPTER_AUTH_SCHEME(self) -> str:
+        return self.private_adapter_auth_scheme
 
     @property
-    def PRIVATE_ADAPTER_AUTH_TOKEN(self) -> str: return self.private_adapter_auth_token
+    def PRIVATE_ADAPTER_AUTH_TOKEN(self) -> str:
+        return self.private_adapter_auth_token
 
     @property
-    def PRIVATE_ADAPTER_INPUT_KEY(self) -> str: return self.private_adapter_input_key
+    def PRIVATE_ADAPTER_INPUT_KEY(self) -> str:
+        return self.private_adapter_input_key
 
     @property
-    def PRIVATE_ADAPTER_OUTPUT_KEY(self) -> str: return self.private_adapter_output_key
+    def PRIVATE_ADAPTER_OUTPUT_KEY(self) -> str:
+        return self.private_adapter_output_key
 
     @property
-    def PRIVATE_ADAPTER_TRACE_KEY(self) -> str: return self.private_adapter_trace_key
+    def PRIVATE_ADAPTER_TRACE_KEY(self) -> str:
+        return self.private_adapter_trace_key
 
     @property
-    def PRIVATE_ADAPTER_PATH(self) -> str: return self.private_adapter_path
+    def PRIVATE_ADAPTER_PATH(self) -> str:
+        return self.private_adapter_path
 
 
 # Singleton settings instance

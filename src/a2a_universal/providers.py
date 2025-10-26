@@ -3,7 +3,7 @@ import importlib
 import pkgutil
 import inspect
 import os
-from typing import Callable, Dict, Optional, Type, Any
+from typing import Callable, Dict, Optional, Any
 
 try:
     # Python 3.10+: importlib.metadata is stdlib
@@ -26,6 +26,7 @@ class ProviderBase:
 
     Minimal implementations may ignore messages and use prompt only.
     """
+
     id: str = "base"
     name: str = "BaseProvider"
     ready: bool = False
@@ -38,6 +39,7 @@ class ProviderBase:
 
 class NotReadyProvider(ProviderBase):
     """A stub provider returned when a plugin fails to load or init."""
+
     def __init__(self, provider_id: str, reason: str) -> None:
         self.id = provider_id
         self.name = provider_id.capitalize()
@@ -61,39 +63,55 @@ def _safe_factory_from_module(module_name: str, fallback_id: str) -> Factory:
     Build a zero-arg factory for a provider module. If import fails or the module
     does not expose a usable provider, return a factory that makes a NotReadyProvider.
     """
+
     def _stub() -> ProviderBase:
-        return NotReadyProvider(fallback_id, reason=(
-            "Module did not expose a valid Provider class or get_provider function."
-        ))
+        return NotReadyProvider(
+            fallback_id,
+            reason=(
+                "Module did not expose a valid Provider class or get_provider function."
+            ),
+        )
 
     try:
         mod = importlib.import_module(module_name)
-    except Exception as e:
+    except Exception:
+
         def _err() -> ProviderBase:
             return NotReadyProvider(fallback_id, reason=f"Import error: {e}")
+
         return _err
 
     # Prefer function get_provider()
     if hasattr(mod, "get_provider") and callable(mod.get_provider):  # type: ignore[attr-defined]
+
         def _ok_fn() -> ProviderBase:
             try:
                 p = mod.get_provider()  # type: ignore[attr-defined]
                 if isinstance(p, ProviderBase):
                     return p
-                return NotReadyProvider(fallback_id, reason="get_provider() did not return ProviderBase")
+                return NotReadyProvider(
+                    fallback_id, reason="get_provider() did not return ProviderBase"
+                )
             except Exception as e:
-                return NotReadyProvider(fallback_id, reason=f"get_provider() failed: {e}")
+                return NotReadyProvider(
+                    fallback_id, reason=f"get_provider() failed: {e}"
+                )
+
         return _ok_fn
 
     # Fallback: class Provider(ProviderBase)
     if hasattr(mod, "Provider"):
         cls = getattr(mod, "Provider")
         if inspect.isclass(cls) and issubclass(cls, ProviderBase):
+
             def _ok_cls() -> ProviderBase:
                 try:
                     return cls()  # type: ignore[call-arg]
                 except Exception as e:
-                    return NotReadyProvider(fallback_id, reason=f"Provider() init failed: {e}")
+                    return NotReadyProvider(
+                        fallback_id, reason=f"Provider() init failed: {e}"
+                    )
+
             return _ok_cls
 
     return _stub
@@ -107,7 +125,7 @@ def _discover_builtin() -> Dict[str, Factory]:
         for _, name, ispkg in pkgutil.iter_modules(pkg.__path__, prefix):  # type: ignore[attr-defined]
             if ispkg:
                 continue
-            short = name.rsplit(".", 1)[-1]   # e.g., 'openai', 'watsonx'
+            short = name.rsplit(".", 1)[-1]  # e.g., 'openai', 'watsonx'
             registry[short] = _safe_factory_from_module(name, short)
     except Exception:
         # Carry on (entry points may still work)
@@ -132,6 +150,7 @@ def _discover_entry_points() -> Dict[str, Factory]:
 
     for ep in eps:
         pid = ep.name  # advertised provider id
+
         def _factory(ep=ep, pid=pid) -> ProviderBase:
             try:
                 obj = ep.load()
@@ -144,9 +163,12 @@ def _discover_entry_points() -> Dict[str, Factory]:
                     p = obj()
                     if isinstance(p, ProviderBase):
                         return p
-                return NotReadyProvider(pid, reason="entry point did not yield ProviderBase")
+                return NotReadyProvider(
+                    pid, reason="entry point did not yield ProviderBase"
+                )
             except Exception as e:
                 return NotReadyProvider(pid, reason=f"entry point load error: {e}")
+
         registry[pid] = _factory
     return registry
 

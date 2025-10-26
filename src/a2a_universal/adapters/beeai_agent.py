@@ -62,6 +62,7 @@ if os.getenv("BEEAI_AGENT_DEBUG", "").strip().lower() in {"1", "true", "yes", "y
 # Env helpers
 # ---------------------------------------------------------------------------
 
+
 def _bool_env(name: str, default: bool = False) -> bool:
     v = os.getenv(name)
     if v is None:
@@ -104,7 +105,9 @@ def preflight_readyz(base_url: str, *, context: str = "BeeAI agent") -> None:
                         context,
                     )
             else:
-                _LOG.debug("Preflight /readyz returned HTTP %s; continuing.", r.status_code)
+                _LOG.debug(
+                    "Preflight /readyz returned HTTP %s; continuing.", r.status_code
+                )
         except Exception as e:  # noqa: BLE001
             _LOG.debug("Preflight /readyz skipped due to error: %r", e)
         finally:
@@ -333,6 +336,7 @@ def _construct_bee_agent(card_url: str) -> Any:
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def make_beeai_agent(base_url: str | None = None) -> Any:
     """
     Create a BeeAI agent wired to the Universal A2A agent card.
@@ -346,7 +350,7 @@ def make_beeai_agent(base_url: str | None = None) -> Any:
     -------
     BeeAI A2AAgent-compatible instance
     """
-    base = (base_url or _base_url())
+    base = base_url or _base_url()
     preflight_readyz(base, context="BeeAI agent")
 
     card_url = f"{base.rstrip('/')}/.well-known/agent-card.json"

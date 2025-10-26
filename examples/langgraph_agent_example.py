@@ -24,8 +24,10 @@ from langchain_core.messages import HumanMessage
 
 from a2a_universal.adapters.langgraph_agent import A2AAgentNode
 
+
 class GraphState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
+
 
 def _preflight_readyz(base: str) -> None:
     """Warn (don’t fail) if the server isn’t running with AGENT_FRAMEWORK=native."""
@@ -36,13 +38,16 @@ def _preflight_readyz(base: str) -> None:
             # best-effort sniffing; shape can vary by server version
             text = json.dumps(data).lower()
             if "crewai" in text and ("ready" in text or "framework" in text):
-                print("[WARN] A2A server looks configured for CrewAI. "
-                      "Run it with AGENT_FRAMEWORK=native for the LangGraph node.")
+                print(
+                    "[WARN] A2A server looks configured for CrewAI. "
+                    "Run it with AGENT_FRAMEWORK=native for the LangGraph node."
+                )
         else:
             print(f"[INFO] /readyz returned HTTP {r.status_code}; continuing.")
     except Exception:
         # Not fatal; keep going.
         pass
+
 
 def main() -> None:
     load_dotenv()
@@ -55,9 +60,12 @@ def main() -> None:
     g.add_edge("a2a", END)
     app = g.compile()
 
-    out = app.invoke({"messages": [HumanMessage(content="What is the capital of Italy?")]})
+    out = app.invoke(
+        {"messages": [HumanMessage(content="What is the capital of Italy?")]}
+    )
     # The node returns an AIMessage with the model's text
     print(out["messages"][-1].content)
+
 
 if __name__ == "__main__":
     main()

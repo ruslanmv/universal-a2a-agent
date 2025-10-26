@@ -2,29 +2,52 @@
 """
 FastAPI server for the Universal A2A Agent.
 
-This module sets up and runs the main web server, handling various API endpoints
-including A2A, JSON-RPC, and an OpenAI-compatible chat completion endpoint.
-It integrates dynamic provider and framework loading, structured logging,
-and production-ready security middleware.
-"""
+- Reads environment from `.env`, or falls back to `.env.example` if `.env` is missing.
+- Serves the core Universal A2A APIs.
+- Optionally mounts /knowledge (RAG) when A2A_ENABLE_KNOWLEDGE=1.
 
+Endpoints:
+  * POST /a2a           — Universal A2A envelope
+  * POST /rpc           — JSON-RPC 2.0 wrapper
+  * POST /openai/...    — OpenAI-compatible chat completions
+  * GET  /healthz       — liveness
+  * GET  /readyz        — readiness
+  * GET  /.well-known/agent-card.json  — discovery metadata
+"""
 from __future__ import annotations
 
-import os  # <-- Added: for A2A_ROOT_PATH support
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
+# --- Load environment from .env, with fallback to .env.example (no override) ---
+from dotenv import load_dotenv, find_dotenv
+
+
+def _load_env_with_fallback() -> str:
+    loaded_from = ""
+    env_path = find_dotenv(filename=".env", usecwd=True)
+    if env_path and load_dotenv(env_path, override=False):
+        loaded_from = env_path
+    if not loaded_from:
+        example_path = find_dotenv(filename=".env.example", usecwd=True)
+        if example_path and load_dotenv(example_path, override=False):
+            loaded_from = example_path
+    return loaded_from
+
+
+_loaded_env_path = _load_env_with_fallback()
+
 import structlog
-from fastapi import FastAPI, HTTPException, Request, Response  # <-- Added Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-# --- Local Application Imports ---
-from .adapters import private_adapter as pad
+# --- Local Application Imports (after env is loaded) ---
 from .card import agent_card
 from .config import settings
 from .frameworks import FrameworkBase, build_framework, list_frameworks
@@ -42,26 +65,18 @@ from .providers import ProviderBase, build_provider, list_providers
 # APPLICATION SETUP
 # =============================================================================
 
-# Initialize structured logging. This should be the first action.
 configure_logging()
 log = structlog.get_logger("a2a.server")
+log.info("Environment loaded", env_file=_loaded_env_path or "(none; OS env only)")
 
-# Load the selected provider and framework at startup.
-# This follows a "fail-fast" approach; if essential components cannot be
-# loaded, the application will not start correctly.
 PROVIDER: ProviderBase = build_provider()
 FRAMEWORK: FrameworkBase = build_framework(PROVIDER)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Manages application startup and shutdown events.
-    This is the modern replacement for @app.on_event("startup").
-    """
     log.info("Server startup sequence initiated...")
 
-    # Log discovered and active components for diagnostics.
     all_providers = list_providers()
     all_frameworks = list_frameworks()
     log.info(
@@ -72,47 +87,45 @@ async def lifespan(app: FastAPI):
     log.info(
         "Active components initialized",
         provider={"id": PROVIDER.id, "name": PROVIDER.name, "ready": PROVIDER.ready},
-        framework={"id": FRAMEWORK.id, "name": FRAMEWORK.name, "ready": FRAMEWORK.ready},
+        framework={
+            "id": FRAMEWORK.id,
+            "name": FRAMEWORK.name,
+            "ready": FRAMEWORK.ready,
+        },
     )
-
     yield
-
     log.info("Server shutdown sequence complete.")
 
 
-# Initialize the FastAPI application.
-# Added: root_path honors a deployment prefix when running behind a proxy/gateway.
 app = FastAPI(
     title=settings.AGENT_NAME or "Universal A2A Agent",
     version=settings.AGENT_VERSION or "0.1.0",
     lifespan=lifespan,
-    root_path=os.getenv("A2A_ROOT_PATH", ""),  # <--- NEW
-    # In a secure production environment, you might disable the docs:
-    # docs_url=None,
-    # redoc_url=None,
+    root_path=os.getenv("A2A_ROOT_PATH", ""),
     openapi_url="/openapi.json",
 )
 
+# Optionally mount /knowledge router (RAG)
+if os.getenv("A2A_ENABLE_KNOWLEDGE", "0") == "1":
+    try:
+        from .routers import knowledge as knowledge_router
+
+        app.include_router(knowledge_router.router)
+        log.info("Knowledge API mounted", enabled=True, prefix="/knowledge")
+    except Exception as e:  # pragma: no cover
+        log.error("Failed to mount /knowledge router", error=str(e))
+else:
+    log.info("Knowledge API not mounted (A2A_ENABLE_KNOWLEDGE!=1)")
 
 # =============================================================================
-# MIDDLEWARE CONFIGURATION
+# MIDDLEWARE
 # =============================================================================
-# Middleware is processed in the reverse order it's added.
 
-# IMPORTANT: Add TrustedHostMiddleware to prevent Host header attacks.
-# In production, set the ALLOWED_HOSTS environment variable to a comma-separated
-# list of your domain names (e.g., "example.com,api.example.com").
-#
-# THE FIX: Use getattr to safely access ALLOWED_HOSTS. If the attribute
-# doesn't exist in the config, it defaults to ["*"] for backward compatibility.
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=getattr(settings, "ALLOWED_HOSTS", ["*"]),
 )
 
-# Configure CORS (Cross-Origin Resource Sharing).
-# For production, `CORS_ALLOW_ORIGINS` should be a specific list of domains,
-# not the wildcard "*".
 app.add_middleware(
     CORSMiddleware,
     allow_origins=(settings.CORS_ALLOW_ORIGINS or ["*"]),
@@ -121,83 +134,54 @@ app.add_middleware(
     allow_headers=(settings.CORS_ALLOW_HEADERS or ["*"]),
 )
 
-
 # =============================================================================
-# HELPER FUNCTIONS & MODELS
+# HELPERS & MODELS
 # =============================================================================
 
 
 def _get_request_id(req: Request) -> str:
-    """
-    Retrieves the X-Request-ID header or generates a new one.
-    This is crucial for request tracing and debugging across services.
-    """
     return req.headers.get("x-request-id", f"gen-{uuid.uuid4()}")
 
 
 def _get_diag_headers(request_id: str) -> Dict[str, str]:
-    """
-    Returns standard diagnostic and security headers for all responses.
-    """
-    return {
-        "X-Request-ID": request_id,
-        "Cache-Control": "no-store",  # Prevents caching of sensitive API responses.
-    }
+    return {"X-Request-ID": request_id, "Cache-Control": "no-store"}
 
 
 def _require_json_content_type(req: Request) -> None:
-    """
-    Raises an HTTPException if the request Content-Type is not application/json.
-    """
     content_type = (req.headers.get("content-type") or "").lower()
     if "application/json" not in content_type:
-        log.warning(
-            "Unsupported Content-Type",
-            content_type=content_type,
-            client_host=req.client.host if req.client else "unknown",
-        )
         raise HTTPException(
             status_code=415, detail="Content-Type must be application/json"
         )
 
 
 def _extract_text_from_message(msg: Dict[str, Any]) -> str:
-    """
-    Safely extracts the first text part from a standard message dictionary.
-    """
     for part in (msg or {}).get("parts", []):
-        # FIX: The model uses 'type', not 'kind'.
         if isinstance(part, dict) and part.get("type") == "text":
             return part.get("text", "")
     return ""
 
 
 class ChatMessage(BaseModel):
-    """Represents a single message in an OpenAI-compatible chat request."""
-
     role: str
     content: Optional[Union[str, List[Dict[str, Any]]]] = None
 
 
 class ChatRequest(BaseModel):
-    """Represents the body of an OpenAI-compatible chat completions request."""
-
     model: Optional[str] = "universal-a2a-agent"
     messages: List[ChatMessage]
 
 
 # =============================================================================
-# META & HEALTH ENDPOINTS
+# META & HEALTH
 # =============================================================================
 
 
 @app.get("/", include_in_schema=False)
 async def root_redirect() -> RedirectResponse:
-    """Redirects the root path to the API documentation for convenience."""
     return RedirectResponse(url="/docs", status_code=307)
 
 
-# NEW: convenience alias (kept out of schema) for platforms probing /health
 @app.get("/health", include_in_schema=False)
 async def health_alias() -> Dict[str, str]:
     return {"status": "ok"}
@@ -205,20 +189,12 @@ async def health_alias() -> Dict[str, str]:
 
 @app.get("/healthz", tags=["Monitoring"])
 async def healthz(req: Request) -> JSONResponse:
-    """
-    A simple health check endpoint. Returns 200 OK if the server is running.
-    Does not check dependencies.
-    """
     request_id = _get_request_id(req)
     return JSONResponse({"status": "ok"}, headers=_get_diag_headers(request_id))
 
 
 @app.get("/readyz", tags=["Monitoring"])
 async def readyz(req: Request) -> JSONResponse:
-    """
-    A readiness probe endpoint. Checks if the core components (Provider and
-    Framework) are ready to accept traffic.
-    """
     request_id = _get_request_id(req)
     provider_meta = {
         "id": PROVIDER.id,
@@ -230,38 +206,34 @@ async def readyz(req: Request) -> JSONResponse:
         "ready": FRAMEWORK.ready,
         "reason": FRAMEWORK.reason,
     }
-
     is_ready = PROVIDER.ready and FRAMEWORK.ready
-    status_code = 200 if is_ready else 503  # Service Unavailable
-
     payload = {
         "status": "ready" if is_ready else "not_ready",
         "provider": provider_meta,
         "framework": framework_meta,
     }
     return JSONResponse(
-        payload, status_code=status_code, headers=_get_diag_headers(request_id)
+        payload,
+        status_code=(200 if is_ready else 503),
+        headers=_get_diag_headers(request_id),
     )
 
 
 @app.get("/.well-known/agent-card.json", tags=["Discovery"])
 async def get_agent_card(req: Request) -> JSONResponse:
-    """Returns the agent's discovery card."""
     request_id = _get_request_id(req)
     return JSONResponse(agent_card(), headers=_get_diag_headers(request_id))
 
 
 # =============================================================================
-# CORE API ENDPOINTS
+# CORE API
 # =============================================================================
 
 
 @app.post("/a2a", tags=["A2A"])
 async def a2a_endpoint(req: Request) -> JSONResponse:
-    """Handles raw A2A message/send requests."""
     request_id = _get_request_id(req)
     _require_json_content_type(req)
-
     try:
         body = await req.json()
     except Exception:
@@ -273,17 +245,9 @@ async def a2a_endpoint(req: Request) -> JSONResponse:
     user_msg = body.get("params", {}).get("message", {})
     user_text = _extract_text_from_message(user_msg)
     context_id = user_msg.get("contextId")
-
     reply_text = await FRAMEWORK.execute([{"role": "user", "content": user_text}])
     agent_message = Message(
         role="agent", parts=[TextPart(text=reply_text)], contextId=context_id
-    )
-
-    log.info(
-        "A2A request processed",
-        request_id=request_id,
-        user_text_len=len(user_text),
-        reply_text_len=len(reply_text),
     )
     return JSONResponse(
         {"result": agent_message.model_dump(exclude_none=True)},
@@ -293,7 +257,6 @@ async def a2a_endpoint(req: Request) -> JSONResponse:
 
 @app.post("/rpc", tags=["A2A"])
 async def jsonrpc_endpoint(req: Request) -> JSONResponse:
-    """Handles JSON-RPC 2.0 message/send requests."""
     request_id = _get_request_id(req)
     _require_json_content_type(req)
 
@@ -301,16 +264,9 @@ async def jsonrpc_endpoint(req: Request) -> JSONResponse:
     try:
         body = await req.json()
         rpc_request = JSONRPCRequest.model_validate(body)
-    except ValidationError as e:
-        log.warning(
-            "Invalid JSON-RPC request",
-            request_id=request_id,
-            error=str(e),
-            body=body,
-        )
+    except ValidationError:
         error_response = JSONRPCError(
-            id=body.get("id"),
-            error={"code": -32600, "message": "Invalid Request"},
+            id=body.get("id"), error={"code": -32600, "message": "Invalid Request"}
         )
         return JSONResponse(
             error_response.model_dump(exclude_none=True),
@@ -319,8 +275,7 @@ async def jsonrpc_endpoint(req: Request) -> JSONResponse:
         )
     except Exception:
         error_response = JSONRPCError(
-            id=None,
-            error={"code": -32700, "message": "Parse error"},
+            id=None, error={"code": -32700, "message": "Parse error"}
         )
         return JSONResponse(
             error_response.model_dump(exclude_none=True),
@@ -330,8 +285,7 @@ async def jsonrpc_endpoint(req: Request) -> JSONResponse:
 
     if rpc_request.method != "message/send":
         error_response = JSONRPCError(
-            id=rpc_request.id,
-            error={"code": -32601, "message": "Method not found"},
+            id=rpc_request.id, error={"code": -32601, "message": "Method not found"}
         )
         return JSONResponse(
             error_response.model_dump(exclude_none=True),
@@ -342,20 +296,11 @@ async def jsonrpc_endpoint(req: Request) -> JSONResponse:
     user_msg = rpc_request.params.message
     user_text = _extract_text_from_message(user_msg.model_dump())
     context_id = user_msg.contextId
-
     reply_text = await FRAMEWORK.execute([{"role": "user", "content": user_text}])
     agent_message = Message(
         role="agent", parts=[TextPart(text=reply_text)], contextId=context_id
     )
-
     success_response = JSONRPCSuccess(id=rpc_request.id, result=agent_message)
-
-    log.info(
-        "JSON-RPC request processed",
-        request_id=request_id,
-        user_text_len=len(user_text),
-        reply_text_len=len(reply_text),
-    )
     return JSONResponse(
         success_response.model_dump(exclude_none=True),
         status_code=200,
@@ -363,14 +308,11 @@ async def jsonrpc_endpoint(req: Request) -> JSONResponse:
     )
 
 
-# --- Minor patch: friendly GET/HEAD/OPTIONS for /rpc to avoid 405 noise -------
+# --- Friendly GET/HEAD/OPTIONS for /rpc (avoid 405 noise) ---
+
 
 @app.get("/rpc", include_in_schema=False)
 async def rpc_info(req: Request) -> JSONResponse:
-    """
-    Informational endpoint for browsers/health probes that hit GET /rpc.
-    Real JSON-RPC calls must use POST /rpc with a JSON body.
-    """
     request_id = _get_request_id(req)
     try:
         post_url = str(req.url_for("jsonrpc_endpoint"))
@@ -380,8 +322,7 @@ async def rpc_info(req: Request) -> JSONResponse:
         {
             "status": "ok",
             "message": (
-                "This is a JSON-RPC 2.0 endpoint. "
-                "Use POST with body: "
+                "This is a JSON-RPC 2.0 endpoint. Use POST with body: "
                 '{"jsonrpc":"2.0","method":"message/send","params":{...},"id":"..."}'
             ),
             "post_url": post_url,
@@ -393,13 +334,11 @@ async def rpc_info(req: Request) -> JSONResponse:
 
 @app.head("/rpc", include_in_schema=False)
 async def rpc_head() -> Response:
-    """Fast path for load-balancer/monitor checks that send HEAD to /rpc."""
     return Response(status_code=204, headers={"Allow": "POST, OPTIONS"})
 
 
 @app.options("/rpc", include_in_schema=False)
 async def rpc_options() -> Response:
-    """Explicit OPTIONS (CORS middleware usually covers this)."""
     return Response(status_code=204, headers={"Allow": "POST, OPTIONS"})
 
 
@@ -410,7 +349,6 @@ async def rpc_options() -> Response:
 
 @app.post("/openai/v1/chat/completions", tags=["OpenAI"])
 async def openai_chat_completions(req: Request) -> JSONResponse:
-    """Provides an OpenAI-compatible endpoint for chat completions."""
     request_id = _get_request_id(req)
     _require_json_content_type(req)
 
@@ -419,9 +357,9 @@ async def openai_chat_completions(req: Request) -> JSONResponse:
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=f"Invalid request body: {e}")
 
-    # Convert to the internal message format for the framework.
-    messages = [{"role": m.role, "content": str(m.content or "")} for m in payload.messages]
-
+    messages = [
+        {"role": m.role, "content": str(m.content or "")} for m in payload.messages
+    ]
     reply_text = await FRAMEWORK.execute(messages)
 
     response_payload = {
@@ -438,13 +376,6 @@ async def openai_chat_completions(req: Request) -> JSONResponse:
         ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
-
-    log.info(
-        "OpenAI completion request processed",
-        request_id=request_id,
-        model=payload.model,
-        num_messages=len(messages),
-    )
     return JSONResponse(response_payload, headers=_get_diag_headers(request_id))
 
 
@@ -455,11 +386,6 @@ async def openai_chat_completions(req: Request) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(req: Request, exc: Exception) -> JSONResponse:
-    """
-    Catches any unhandled exceptions and returns a generic 500 error.
-    This prevents leaking internal implementation details to the client.
-    The full traceback is logged for debugging.
-    """
     request_id = _get_request_id(req)
     log.error(
         "Unhandled exception caught",
@@ -467,7 +393,7 @@ async def unhandled_exception_handler(req: Request, exc: Exception) -> JSONRespo
         path=req.url.path,
         client=req.client.host if req.client else "unknown",
         error=str(exc),
-        exc_info=True,  # This is critical for logging the stack trace.
+        exc_info=True,
     )
     return JSONResponse(
         {"error": "Internal Server Error"},
@@ -478,96 +404,84 @@ async def unhandled_exception_handler(req: Request, exc: Exception) -> JSONRespo
 
 # -----------------------  Compatibility middleware (additive)  -----------------------
 
+
 @app.middleware("http")
 async def _a2a_rpc_compat_normalizer(request: Request, call_next):
-    """
-    Additive compatibility shim:
-      - Normalizes POST bodies for /a2a and /rpc so parts with {"text": "..."} or {"kind":"text"}
-        are converted to {"type":"text","text":"..."} BEFORE your handlers parse the body.
-      - Augments /a2a responses by mirroring top-level {"message": <result>} for clients/tests
-        that expect 'message' instead of 'result'. Existing payload remains untouched.
-    """
     import json as _json
 
     path = request.url.path
     method = (request.method or "GET").upper()
 
-    # ---- Normalize request bodies for /a2a and /rpc (input text extraction fix) ----
     if method == "POST" and path in ("/a2a", "/rpc"):
         try:
             raw = await request.body()
             data = _json.loads(raw.decode("utf-8") or "{}")
-            # Locate the 'message' envelope (A2A or JSON-RPC params)
             msg = None
             if isinstance(data, dict):
-                if isinstance(data.get("params"), dict) and isinstance(data["params"].get("message"), dict):
+                if isinstance(data.get("params"), dict) and isinstance(
+                    data["params"].get("message"), dict
+                ):
                     msg = data["params"]["message"]
                 elif isinstance(data.get("message"), dict):
                     msg = data["message"]
-            # Normalize parts -> ensure {"type":"text","text":"..."}
             changed = False
             if isinstance(msg, dict) and isinstance(msg.get("parts"), list):
                 for p in msg["parts"]:
-                    if isinstance(p, dict) and "text" in p:
-                        if p.get("type") != "text":
-                            # Convert {"kind":"text"} or bare {"text": "..."} into canonical shape
-                            if p.get("kind") == "text":
-                                p.pop("kind", None)
-                            p["type"] = "text"
-                            changed = True
+                    if isinstance(p, dict) and "text" in p and p.get("type") != "text":
+                        if p.get("kind") == "text":
+                            p.pop("kind", None)
+                        p["type"] = "text"
+                        changed = True
             if changed:
                 new_raw = _json.dumps(data).encode("utf-8")
-                # Rebuild the request's receive() so downstream sees normalized JSON
+
                 async def _receive():
                     return {"type": "http.request", "body": new_raw, "more_body": False}
+
                 request = Request(request.scope, _receive)
         except Exception:
-            # If anything goes wrong, fall back to original request
             pass
 
-    # Call downstream handler
     response = await call_next(request)
 
-    # ---- Augment /a2a responses with top-level 'message' (additive, keeps 'result') ----
     if method == "POST" and path == "/a2a":
         try:
-            # Drain the response body (it's a stream), then rebuild
             body_bytes = b""
             async for chunk in response.body_iterator:
                 body_bytes += chunk
 
-            import typing as _t
             from fastapi.responses import JSONResponse as _JSONResponse
 
             payload = {}
             try:
                 payload = _json.loads(body_bytes.decode("utf-8") or "{}")
             except Exception:
-                # Not JSON? Return original bytes
                 return Response(
                     content=body_bytes,
                     status_code=response.status_code,
-                    headers={k: v for k, v in response.headers.items() if k.lower() != "content-length"},
+                    headers={
+                        k: v
+                        for k, v in response.headers.items()
+                        if k.lower() != "content-length"
+                    },
                     media_type=response.media_type,
                 )
 
-            # If top-level 'message' is missing but 'result' exists, mirror it.
             if "message" not in payload and "result" in payload:
                 payload["message"] = payload["result"]
 
-            # Rebuild JSON response, preserving headers (except content-length)
-            headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+            headers = {
+                k: v
+                for k, v in response.headers.items()
+                if k.lower() != "content-length"
+            }
             return _JSONResponse(
-                content=payload,
-                status_code=response.status_code,
-                headers=headers,
+                content=payload, status_code=response.status_code, headers=headers
             )
         except Exception:
-            # On any failure, return the original response as-is
             return response
 
     return response
-# ---------------------  End Compatibility middleware (additive)  ---------------------
 
 
 # =============================================================================
@@ -575,17 +489,15 @@ async def _a2a_rpc_compat_normalizer(request: Request, call_next):
 # =============================================================================
 
 if __name__ == "__main__":
-    # This block is for local development only.
-    # In production, use a process manager like Gunicorn with Uvicorn workers
-    # to run the 'app' object. Example:
-    # gunicorn -w 4 -k uvicorn.workers.UvicornWorker src.a2a_universal.server:app
     import uvicorn
 
-    log.info("Starting server in development mode...")
+    host = os.getenv("A2A_HOST", "0.0.0.0")
+    port = int(os.getenv("A2A_PORT", "8000"))
+    log.info("Starting server in development mode...", host=host, port=port)
     uvicorn.run(
-        "src.a2a_universal.server:app",
-        host="0.0.0.0",
-        port=8080,
+        "a2a_universal.server:app",
+        host=host,
+        port=port,
         log_level="info",
         reload=True,
     )

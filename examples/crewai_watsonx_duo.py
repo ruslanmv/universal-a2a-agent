@@ -29,7 +29,7 @@ if not all([project_id, url, api_key]):
 watsonx_llm = LLM(
     model=f"watsonx/{model_id}",
     api_key=api_key,
-    base_url=url,           # LiteLLM uses api_base/base_url for endpoint
+    base_url=url,  # LiteLLM uses api_base/base_url for endpoint
     temperature=0.0,
     max_tokens=2048,
     project_id=project_id,  # forwarded to watsonx provider
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         goal="Gather concise, accurate notes and outline the topic.",
         backstory="Methodical analyst who drafts clean bullet-point notes.",
         tools=[a2a_tool],
-        llm=watsonx_llm,   # ✅ use CrewAI-native Watsonx LLM
+        llm=watsonx_llm,  # ✅ use CrewAI-native Watsonx LLM
         allow_delegation=False,
         verbose=True,
     )
@@ -62,7 +62,7 @@ if __name__ == "__main__":
         goal="Turn notes into a tidy LaTeX article (1–2 pages).",
         backstory="Technical writer who produces compilable LaTeX.",
         tools=[a2a_tool],
-        llm=watsonx_llm,   # ✅ use CrewAI-native Watsonx LLM
+        llm=watsonx_llm,  # ✅ use CrewAI-native Watsonx LLM
         allow_delegation=False,
         verbose=True,
     )
